@@ -1,0 +1,6 @@
+{
+  "name": "Neon Raider Arcade",
+  "description": "A highly polished, retro-themed arcade survival mobile game with sound effects, upgrades, and high-score tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

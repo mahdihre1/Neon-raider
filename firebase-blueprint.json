@@ -1,0 +1,31 @@
+{
+  "entities": {
+    "leaderboard": {
+      "title": "Leaderboard",
+      "description": "Leaderboard scores submitted by pilots",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "Pilot callsign"
+        },
+        "score": {
+          "type": "number",
+          "description": "High score achieved"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp of submission"
+        }
+      },
+      "required": ["username", "score"]
+    }
+  },
+  "firestore": {
+    "leaderboard/{scoreId}": {
+      "schema": "leaderboard",
+      "description": "Collection of pilot high scores"
+    }
+  }
+}

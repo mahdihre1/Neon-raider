@@ -1,0 +1,102 @@
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, addDoc, getDocs, query, orderBy, limit, serverTimestamp } from 'firebase/firestore';
+import firebaseConfig from '../../firebase-applet-config.json';
+
+// Initialize Firebase with the auto-provisioned configuration
+const app = initializeApp(firebaseConfig);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+export interface LeaderboardEntry {
+  id?: string;
+  username: string;
+  score: number;
+  timestamp?: any;
+}
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: null,
+      email: null,
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
+// Fetch the top highscores from Firestore
+export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
+  const path = 'leaderboard';
+  try {
+    const scoresCol = collection(db, path);
+    // Fetch a larger pool to allow robust client-side de-duplication of pilot callsigns
+    const q = query(scoresCol, orderBy('score', 'desc'), limit(1000));
+    const snapshot = await getDocs(q);
+    const results: LeaderboardEntry[] = [];
+    snapshot.forEach((doc) => {
+      const data = doc.data();
+      results.push({
+        id: doc.id,
+        username: data.username || 'Anonymous',
+        score: Number(data.score) || 0,
+        timestamp: data.timestamp
+      });
+    });
+
+    // Client-side de-duplication: keep only the first (highest) score for each unique username
+    const uniqueMap = new Map<string, LeaderboardEntry>();
+    for (const entry of results) {
+      const normalizedUser = entry.username.trim().toLowerCase();
+      if (!uniqueMap.has(normalizedUser)) {
+        uniqueMap.set(normalizedUser, entry);
+      }
+    }
+
+    return Array.from(uniqueMap.values());
+  } catch (error) {
+    console.error("Error loading leaderboard:", error);
+    handleFirestoreError(error, OperationType.GET, path);
+    return [];
+  }
+}
+
+// Submit a highscore to Firestore
+export async function submitHighScore(username: string, score: number): Promise<boolean> {
+  if (!username || username.trim() === '') return false;
+  const path = 'leaderboard';
+  try {
+    const scoresCol = collection(db, path);
+    await addDoc(scoresCol, {
+      username: username.trim(),
+      score: score,
+      timestamp: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error("Error submitting highscore:", error);
+    handleFirestoreError(error, OperationType.WRITE, path);
+    return false;
+  }
+}
