@@ -56,6 +56,18 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
     const win = window as any;
     let fallbackTimer: number;
 
+    const safeReward = () => {
+      setTimeout(() => {
+        onReward();
+      }, 0);
+    };
+
+    const safeCancel = () => {
+      setTimeout(() => {
+        onCancel();
+      }, 0);
+    };
+
     const startFallback = () => {
       setIsRealAdActive(false);
       setStatusText("SPONSOR BROADCAST ACTIVE");
@@ -67,7 +79,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
             clearInterval(interval);
             // Completed!
             SynthAudio.playPowerup();
-            onReward();
+            safeReward();
             return 0;
           }
           // Tick sound
@@ -96,10 +108,10 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
             showAdFn();
           },
           adDismissed: () => {
-            onCancel();
+            safeCancel();
           },
           adViewed: () => {
-            onReward();
+            safeReward();
           },
           adBreakDone: (placementInfo: any) => {
             console.log("AdSense H5 Ad Placement Completed:", placementInfo);
