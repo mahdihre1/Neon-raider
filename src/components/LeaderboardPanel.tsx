@@ -14,29 +14,15 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
   const [currentUserRank, setCurrentUserRank] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'weekly' | 'daily'>('all');
 
   const fetchScores = async () => {
     setLoading(true);
     setError(null);
     try {
       const data = await getLeaderboard();
-      // Only display the top 100 entries in the main leaderboard
-      setEntries(data.slice(0, 100));
-
-      // Calculate the active user's rank in the entire de-duplicated pool
-      if (currentUsername) {
-        const normalizedCurrentUser = currentUsername.trim().toLowerCase();
-        const userIndex = data.findIndex(
-          (entry) => entry.username.trim().toLowerCase() === normalizedCurrentUser
-        );
-        if (userIndex !== -1) {
-          setCurrentUserEntry(data[userIndex]);
-          setCurrentUserRank(userIndex + 1);
-        } else {
-          setCurrentUserEntry(null);
-          setCurrentUserRank(null);
-        }
-      }
+      // Store all raw entries to allow accurate time filtering and de-duplication
+      setEntries(data);
     } catch (e) {
       console.error(e);
       setError("Unable to sync with deep-space score server.");
@@ -53,6 +39,64 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
     SynthAudio.playCollect();
     fetchScores();
   };
+
+  // Filter and de-duplicate based on selected tab
+  const filteredEntries = React.useMemo(() => {
+    // 1. Filter by time window
+    const timeFiltered = entries.filter((entry) => {
+      if (activeTab === 'all') return true;
+      if (!entry.timestamp) return false;
+
+      let entryMs = 0;
+      if (entry.timestamp && typeof entry.timestamp.toMillis === 'function') {
+        entryMs = entry.timestamp.toMillis();
+      } else if (entry.timestamp && entry.timestamp.seconds) {
+        entryMs = entry.timestamp.seconds * 1000;
+      } else {
+        entryMs = new Date(entry.timestamp).getTime();
+      }
+
+      if (isNaN(entryMs) || entryMs <= 0) return false;
+
+      const diff = Date.now() - entryMs;
+      if (activeTab === 'daily') {
+        // Daily: Top high score of today (calendar day starting at local midnight)
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        return entryMs >= startOfToday.getTime();
+      } else if (activeTab === 'weekly') {
+        return diff <= 7 * 24 * 60 * 60 * 1000;
+      }
+      return true;
+    });
+
+    // 2. De-duplicate: Keep only the top high score per unique user
+    // Since the original entries (and thus timeFiltered) are already sorted by score descending,
+    // the first entry we encounter for any username is guaranteed to be their highest score in this timeframe.
+    const uniqueMap = new Map<string, LeaderboardEntry>();
+    for (const entry of timeFiltered) {
+      const normalizedUser = entry.username.trim().toLowerCase();
+      if (!uniqueMap.has(normalizedUser)) {
+        uniqueMap.set(normalizedUser, entry);
+      }
+    }
+
+    return Array.from(uniqueMap.values());
+  }, [entries, activeTab]);
+
+  // Calculate rank for the active user within the selected filter tab
+  let tabUserRank: number | null = null;
+  let tabUserEntry: LeaderboardEntry | null = null;
+  if (currentUsername) {
+    const normalizedCurrentUser = currentUsername.trim().toLowerCase();
+    const idx = filteredEntries.findIndex(
+      (entry) => entry.username.trim().toLowerCase() === normalizedCurrentUser
+    );
+    if (idx !== -1) {
+      tabUserEntry = filteredEntries[idx];
+      tabUserRank = idx + 1;
+    }
+  }
 
   return (
     <div className="flex flex-col h-full bg-slate-950/90 backdrop-blur-md text-slate-100 font-sans">
@@ -73,6 +117,40 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
         </button>
       </div>
 
+      {/* FILTER TABS */}
+      <div className="px-4 py-2 bg-slate-900/30 border-b border-slate-800/80 grid grid-cols-3 gap-2 shrink-0 font-mono text-[10px]">
+        <button
+          onClick={() => { SynthAudio.playCollect(); setActiveTab('all'); }}
+          className={`py-1.5 rounded-lg border font-bold transition-all ${
+            activeTab === 'all'
+              ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/50 shadow-[0_0_8px_rgba(6,182,212,0.1)]'
+              : 'bg-slate-950/30 text-slate-500 border-slate-900 hover:border-slate-800 hover:text-slate-400'
+          }`}
+        >
+          ALL-TIME
+        </button>
+        <button
+          onClick={() => { SynthAudio.playCollect(); setActiveTab('weekly'); }}
+          className={`py-1.5 rounded-lg border font-bold transition-all ${
+            activeTab === 'weekly'
+              ? 'bg-amber-500/10 text-amber-400 border-amber-500/50 shadow-[0_0_8px_rgba(245,158,11,0.1)]'
+              : 'bg-slate-950/30 text-slate-500 border-slate-900 hover:border-slate-800 hover:text-slate-400'
+          }`}
+        >
+          WEEKLY
+        </button>
+        <button
+          onClick={() => { SynthAudio.playCollect(); setActiveTab('daily'); }}
+          className={`py-1.5 rounded-lg border font-bold transition-all ${
+            activeTab === 'daily'
+              ? 'bg-rose-500/10 text-rose-400 border-rose-500/50 shadow-[0_0_8px_rgba(244,63,94,0.1)]'
+              : 'bg-slate-950/30 text-slate-500 border-slate-900 hover:border-slate-800 hover:text-slate-400'
+          }`}
+        >
+          DAILY
+        </button>
+      </div>
+
       {/* LEADERS LIST */}
       <div className="flex-1 p-4 space-y-3 overflow-y-auto">
         {loading ? (
@@ -86,11 +164,13 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
             <p className="text-xs text-rose-400 font-bold font-mono">CONNECTION FAULTED</p>
             <p className="text-[10px] text-slate-400 leading-relaxed">{error}</p>
           </div>
-        ) : entries.length === 0 ? (
+        ) : filteredEntries.length === 0 ? (
           <div className="h-48 flex flex-col items-center justify-center text-center space-y-2 p-6 border border-dashed border-slate-800 rounded-2xl">
             <Award className="w-8 h-8 text-slate-600" />
             <p className="text-xs text-slate-400 font-bold font-mono">NO DATA RECORDED</p>
-            <p className="text-[10px] text-slate-500 leading-relaxed">Be the first Raider to submit a deep space score to the sector network!</p>
+            <p className="text-[10px] text-slate-500 leading-relaxed">
+              No raiders have registered scores in this sector during this time window. Be the first!
+            </p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -100,7 +180,7 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
               <span className="col-span-4 text-right">NEON SCORE</span>
             </div>
 
-            {entries.map((entry, index) => {
+            {filteredEntries.slice(0, 100).map((entry, index) => {
               const isCurrentUser = currentUsername && entry.username.toLowerCase() === currentUsername.toLowerCase();
               const rank = index + 1;
               
@@ -161,7 +241,7 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
       </div>
 
       {/* STICKY USER STANDING IF RANK > 100 */}
-      {!loading && !error && currentUserRank && currentUserRank > 100 && currentUserEntry && (
+      {!loading && !error && tabUserRank && tabUserRank > 100 && tabUserEntry && (
         <div className="px-4 py-3 border-t border-slate-800/80 bg-slate-950/85 backdrop-blur-sm shrink-0 flex flex-col gap-1.5 shadow-inner">
           <div className="text-[9px] font-mono uppercase text-cyan-400 tracking-wider font-bold px-1">
             Your Sector Standing (Out of Top 100)
@@ -170,14 +250,14 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
             {/* Rank badge */}
             <div className="col-span-2 flex items-center">
               <span className="w-6 h-6 rounded-lg border border-cyan-500/40 bg-cyan-500/20 text-cyan-300 text-xs font-mono font-black flex items-center justify-center">
-                #{currentUserRank}
+                #{tabUserRank}
               </span>
             </div>
 
             {/* Username */}
             <div className="col-span-6 flex items-center gap-1.5 min-w-0">
               <span className="text-xs font-bold font-mono tracking-tight truncate text-cyan-300">
-                {currentUserEntry.username}
+                {tabUserEntry.username}
               </span>
               <span className="text-[7px] font-mono font-bold uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 px-1.5 py-0.5 rounded shrink-0">
                 YOU
@@ -187,7 +267,7 @@ export default function LeaderboardPanel({ onClose, currentUsername }: Leaderboa
             {/* Score */}
             <div className="col-span-4 text-right flex items-center justify-end gap-1 font-mono">
               <span className="text-xs font-black tracking-tight text-cyan-300">
-                {currentUserEntry.score.toLocaleString()}
+                {tabUserEntry.score.toLocaleString()}
               </span>
             </div>
           </div>

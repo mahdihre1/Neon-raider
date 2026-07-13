@@ -78,6 +78,11 @@ export default function App() {
   const [gameState, setGameState] = useState<'splash' | 'game' | 'upgrades' | 'stats' | 'gameover' | 'leaderboard'>('splash');
   const [paused, setPaused] = useState(false);
 
+  // Starter philosophy & death insights
+  const [starterLoadout, setStarterLoadout] = useState<'balanced' | 'glass' | 'tank'>('balanced');
+  const [deathCause, setDeathCause] = useState<string | null>(null);
+  const [suggestedUpgrade, setSuggestedUpgrade] = useState<string | null>(null);
+
   // Username & Leaderboard states
   const [username, setUsername] = useState<string>('PILOT_RAIDER');
   const [showUsernameModal, setShowUsernameModal] = useState(false);
@@ -114,7 +119,8 @@ export default function App() {
       if (storedUpgrades) {
         setUpgrades({
           ...INITIAL_UPGRADES,
-          ...JSON.parse(storedUpgrades)
+          ...JSON.parse(storedUpgrades),
+          selectedWeapon: 'plasma'
         });
       }
 
@@ -226,8 +232,11 @@ export default function App() {
   };
 
   // Run Game over handler
-  const handleGameOver = (finalScore: number, scrapSalvaged: number, enemiesKilled: number) => {
+  const handleGameOver = (finalScore: number, scrapSalvaged: number, enemiesKilled: number, dCause?: string, sUpgrade?: string) => {
     SynthAudio.stopMusic();
+
+    setDeathCause(dCause || "Vessel hull integrity compromised due to excessive energy drain.");
+    setSuggestedUpgrade(sUpgrade || "Nano-Shield Capacity (increases max shield and survival window).");
 
     const isNewHighScore = finalScore > stats.highScore;
     const nextHighScore = isNewHighScore ? finalScore : stats.highScore;
@@ -383,8 +392,88 @@ export default function App() {
       <div className="absolute top-1/4 left-1/3 w-96 h-96 bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-purple-600/10 rounded-full blur-[150px] pointer-events-none" />
 
-      {/* MOBILE CONTAINER WRAPPER - Curved smartphone frame for desktop, seamlessly full-screen on true mobiles */}
-      <div className="relative w-full max-w-md h-[100vh] sm:h-[840px] bg-slate-950 sm:rounded-[36px] overflow-hidden border-0 sm:border-8 border-slate-900/80 shadow-[0_0_80px_rgba(0,0,0,0.85)] flex flex-col z-10 transition-all">
+      {/* 3D COMMAND DECK: Flexible row layout on desktop, center column on mobile */}
+      <div className="flex flex-col lg:flex-row items-center justify-center gap-6 xl:gap-8 w-full max-w-6xl z-10 transition-all">
+
+        {/* LEFT DECK PANEL: PILOT INSTRUMENTS & HUD MANUAL (Desktop Only) */}
+        <div className="hidden lg:flex flex-col w-64 h-[840px] bg-slate-900/40 border border-slate-800/80 rounded-[32px] p-5 backdrop-blur-md justify-between select-none text-slate-300 font-sans shadow-xl">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-800/60 pb-3">
+              <Gamepad2 className="w-5 h-5 text-cyan-400 animate-pulse" />
+              <div>
+                <h3 className="text-xs font-black font-mono tracking-wider text-slate-100 uppercase">SYS MONITOR</h3>
+                <p className="text-[9px] font-mono text-emerald-400">● FLIGHT DECK SECURE</p>
+              </div>
+            </div>
+
+            {/* Flight Controls Instruction Module */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold font-mono uppercase tracking-widest text-slate-400 block">Flight Controls</span>
+              <div className="bg-slate-950/50 rounded-xl p-3 border border-slate-850 space-y-2 font-mono text-[9px] text-slate-300 leading-relaxed shadow-inner">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">W</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">A</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">S</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">D</span>
+                  <span className="text-slate-500">/</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">ARROWS</span>
+                </div>
+                <p className="text-slate-400 text-[8px] leading-snug">Press keyboard arrows or keys to move fighter vessel.</p>
+                
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/50 mt-1">
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">MOUSE</span>
+                  <span className="text-slate-500">/</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">TOUCH DRAG</span>
+                </div>
+                <p className="text-slate-400 text-[8px] leading-snug">Drag anywhere on or near simulation screen to guide ship.</p>
+
+                <div className="flex items-center gap-2 pt-1 border-t border-slate-800/50 mt-1">
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">ESC</span>
+                  <span className="text-slate-500">/</span>
+                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-cyan-400 font-bold">P</span>
+                </div>
+                <p className="text-slate-400 text-[8px] leading-snug">Instantly pause active simulation runs.</p>
+              </div>
+            </div>
+
+            {/* Active Philosophy details */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold font-mono uppercase tracking-widest text-slate-400 block">Hull Philosophy</span>
+              <div className="bg-slate-950/40 border border-slate-850 rounded-xl p-2.5 space-y-2 font-mono text-[9px] shadow-inner">
+                <div className={`p-1.5 rounded-lg border transition-all ${starterLoadout === 'balanced' ? 'bg-cyan-950/20 border-cyan-500/40 text-cyan-300' : 'bg-transparent border-transparent text-slate-500'}`}>
+                  <div className="flex items-center gap-1.5 font-bold text-[8px]">
+                    <Shield className="w-3.5 h-3.5 shrink-0" />
+                    <span>BALANCED CORES</span>
+                  </div>
+                  <p className="text-[7px] text-slate-400 leading-snug mt-0.5">100 capacity shield, standard cooling rate.</p>
+                </div>
+                <div className={`p-1.5 rounded-lg border transition-all ${starterLoadout === 'glass' ? 'bg-rose-950/20 border-rose-500/40 text-rose-300' : 'bg-transparent border-transparent text-slate-500'}`}>
+                  <div className="flex items-center gap-1.5 font-bold text-[8px]">
+                    <Zap className="w-3.5 h-3.5 shrink-0" />
+                    <span>GLASS CANNON</span>
+                  </div>
+                  <p className="text-[7px] text-rose-450 leading-snug mt-0.5">+50% raw damage yield, -60% shield capacity.</p>
+                </div>
+                <div className={`p-1.5 rounded-lg border transition-all ${starterLoadout === 'tank' ? 'bg-amber-950/20 border-amber-500/40 text-amber-300' : 'bg-transparent border-transparent text-slate-500'}`}>
+                  <div className="flex items-center gap-1.5 font-bold text-[8px]">
+                    <Battery className="w-3.5 h-3.5 shrink-0" />
+                    <span>HEAVY PLATE TANK</span>
+                  </div>
+                  <p className="text-[7px] text-slate-450 leading-snug mt-0.5">+80 max shield hull, weapon cycles 30% slower.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick specs footer */}
+          <div className="space-y-1.5 pt-3 border-t border-slate-850 text-center font-mono text-[8px] text-slate-500 uppercase tracking-widest leading-none">
+            <p className="text-cyan-400/70">Vessel: Raider Starfighter</p>
+            <p>Firmware: v1.9.5-A</p>
+          </div>
+        </div>
+
+        {/* MOBILE CONTAINER WRAPPER - Curved smartphone frame for desktop, seamlessly full-screen on true mobiles */}
+        <div className="relative w-full max-w-md h-[100vh] sm:h-[840px] bg-slate-950 sm:rounded-[36px] overflow-hidden border-0 sm:border-8 border-slate-900/80 shadow-[0_0_80px_rgba(0,0,0,0.85)] flex flex-col transition-all">
         
         {/* Phone Dynamic Bezel / Speaker Notch for Desktop */}
         <div className="hidden sm:block absolute top-0 inset-x-0 h-6 bg-slate-900 flex justify-center items-center z-50">
@@ -405,24 +494,24 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 flex flex-col justify-between bg-slate-950/40 p-6 font-sans text-slate-200"
+                className="absolute inset-0 flex flex-col justify-between bg-slate-950/40 p-4 sm:p-6 font-sans text-slate-200 overflow-y-auto scrollbar-none"
               >
                 {/* Upper Status controls */}
                 <div className="flex justify-between items-center z-10">
                   <div 
                     onClick={() => { SynthAudio.playCollect(); setShowUsernameModal(true); }}
-                    className="flex items-center space-x-3 bg-slate-900/60 backdrop-blur-md p-1.5 pr-4 rounded-full border border-slate-700/50 shadow-xl cursor-pointer hover:border-cyan-500/50 hover:bg-slate-900/80 transition-all group"
+                    className="flex items-center space-x-2 bg-slate-900/80 backdrop-blur-md p-1 pr-3.5 rounded-full border border-slate-800 shadow-lg cursor-pointer hover:border-cyan-500/50 hover:bg-slate-900 transition-all group select-none"
                   >
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-600 border border-slate-200/40 flex items-center justify-center font-black text-xs text-white group-hover:from-cyan-300 group-hover:to-blue-500 transition-all">
-                      <User className="w-4 h-4 text-white" />
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-600 border border-slate-700 flex items-center justify-center font-black text-xs text-white group-hover:from-cyan-300 group-hover:to-blue-500 transition-all">
+                      <User className="w-3.5 h-3.5 text-white" />
                     </div>
                     <div className="flex flex-col min-w-0 max-w-[100px]">
-                      <span className="text-[8px] text-slate-400 uppercase tracking-widest font-semibold">Commander</span>
+                      <span className="text-[7px] text-slate-400 uppercase tracking-widest font-bold">Commander</span>
                       <span className="text-[10px] font-bold tracking-tight text-white font-mono truncate">{username}</span>
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-1.5">
                     <button 
                       id="music-toggle-menu"
                       onClick={toggleMusicLocal}
@@ -433,7 +522,7 @@ export default function App() {
                     <button 
                       id="sfx-toggle-menu"
                       onClick={toggleSound}
-                      className={`px-3 py-1 rounded-xl border text-[10px] font-mono font-bold transition-all ${sfxOn ? 'bg-slate-900/80 text-cyan-400 border-slate-700/50 shadow-lg' : 'bg-slate-950 text-slate-600 border-slate-800'}`}
+                      className={`px-2.5 py-1 rounded-xl border text-[9px] font-mono font-bold transition-all ${sfxOn ? 'bg-slate-900/80 text-cyan-400 border-slate-700/50 shadow-lg' : 'bg-slate-950 text-slate-600 border-slate-800'}`}
                     >
                       SFX
                     </button>
@@ -441,67 +530,77 @@ export default function App() {
                 </div>
 
                 {/* Ambient Scrolling Synth Logo Design */}
-                <div className="flex-1 flex flex-col items-center justify-center py-6 text-center z-10">
-                  {/* Decorative Glowing Ship Icon */}
+                <div className="flex-1 flex flex-col items-center justify-center py-4 text-center z-10">
+                  {/* Decorative Glowing Ship Icon - Compact on Mobile */}
                   <motion.div 
-                    animate={{ y: [0, -12, 0] }}
+                    animate={{ y: [0, -8, 0] }}
                     transition={{ repeat: Infinity, duration: 4, ease: "easeInOut" }}
-                    className="w-20 h-20 mb-6 relative flex items-center justify-center bg-slate-900/60 border border-slate-700/50 rounded-2xl p-4 shadow-xl shadow-cyan-500/5"
+                    className="w-14 h-14 sm:w-20 sm:h-20 mb-3 sm:mb-6 relative flex items-center justify-center bg-slate-900/80 border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xl"
                   >
-                    <div 
-                      className="w-0 h-0 border-l-[16px] border-r-[16px] border-b-[36px] border-l-transparent border-r-transparent filter drop-shadow-[0_0_15px_rgba(34,211,238,0.6)] animate-pulse"
-                      style={{ borderBottomColor: activeSkinObj.color }}
-                    />
+                    <svg 
+                      className="w-8 h-8 sm:w-11 sm:h-11 transition-all duration-300"
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke={activeSkinObj.color} 
+                      strokeWidth="2"
+                    >
+                      <path 
+                        d="M12 2L4 21l8-4 8 4-8-19z" 
+                        strokeLinecap="round" 
+                        strokeLinejoin="round" 
+                        fill={`${activeSkinObj.color}20`}
+                        className="animate-pulse"
+                      />
+                    </svg>
                   </motion.div>
 
-                  <h1 className="text-5xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 italic uppercase select-none">
+                  <h1 className="text-4xl sm:text-5xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white via-slate-200 to-slate-500 italic uppercase select-none">
                     Neon Raider
                   </h1>
-                  <p className="text-cyan-400 font-mono tracking-[0.3em] text-[10px] mt-2 uppercase opacity-80">
+                  <p className="text-cyan-400 font-mono tracking-[0.3em] text-[9px] sm:text-[10px] mt-1 sm:mt-2 uppercase opacity-80">
                     DEEP SPACE COMBAT SIMULATOR
                   </p>
 
                   {/* Active Ship Specs */}
-                  <div className="bg-slate-900/60 border border-slate-700/50 backdrop-blur-md px-4 py-2.5 rounded-xl flex items-center gap-2.5 max-w-[280px] mt-6 shadow-lg">
-                    <span className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: activeSkinObj.color }} />
+                  <div className="bg-slate-900/80 border border-slate-800 backdrop-blur-md px-3 py-1.5 sm:py-2.5 rounded-xl flex items-center gap-2 max-w-[280px] mt-3 sm:mt-6 shadow-lg">
+                    <span className="w-1.5 h-1.5 rounded-full animate-ping" style={{ backgroundColor: activeSkinObj.color }} />
                     <div className="text-left">
-                      <p className="text-[9px] text-slate-500 font-mono tracking-wider">SELECTED VESSEL</p>
-                      <p className="text-xs font-bold text-slate-200 font-mono uppercase">{activeSkinObj.name}</p>
+                      <p className="text-[8px] text-slate-500 font-mono tracking-wider">SELECTED VESSEL</p>
+                      <p className="text-[11px] font-bold text-slate-200 font-mono uppercase">{activeSkinObj.name}</p>
                     </div>
                   </div>
-
                 </div>
 
                 {/* Dashboard Action Navigation Buttons */}
-                <div className="space-y-4 z-10">
+                <div className="space-y-3 sm:space-y-4 z-10">
                   {/* GAME MODE SELECTION CARD */}
-                  <div className="bg-slate-900/40 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2 font-mono">
-                    <p className="text-[9px] text-slate-500 font-bold tracking-widest text-center uppercase">SELECT MISSION MODULE</p>
+                  <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-2 sm:p-2.5 flex flex-col gap-1.5 font-mono shadow-md">
+                    <p className="text-[8px] sm:text-[9px] text-slate-500 font-bold tracking-widest text-center uppercase">SELECT MISSION MODULE</p>
                     <div className="grid grid-cols-2 gap-1.5">
                       <button
                         onClick={() => { SynthAudio.playCollect(); setGameMode('normal'); }}
-                        className={`py-2 px-1 rounded-lg border text-[10px] font-black tracking-tight transition duration-200 flex flex-col items-center gap-1 ${
+                        className={`py-1.5 px-1 rounded-lg border text-[9px] sm:text-[10px] font-black tracking-tight transition duration-200 flex flex-col items-center gap-0.5 ${
                           gameMode === 'normal' 
                             ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/50 shadow-[0_0_12px_rgba(6,182,212,0.15)]' 
                             : 'bg-slate-950/40 text-slate-400 border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        <Zap className={`w-3.5 h-3.5 ${gameMode === 'normal' ? 'text-cyan-400' : 'text-slate-500'}`} />
+                        <Zap className={`w-3 h-3 ${gameMode === 'normal' ? 'text-cyan-400' : 'text-slate-500'}`} />
                         <span>NORMAL ARCADE</span>
                       </button>
                       <button
                         onClick={() => { SynthAudio.playCollect(); setGameMode('story'); }}
-                        className={`py-2 px-1 rounded-lg border text-[10px] font-black tracking-tight transition duration-200 flex flex-col items-center gap-1 ${
+                        className={`py-1.5 px-1 rounded-lg border text-[9px] sm:text-[10px] font-black tracking-tight transition duration-200 flex flex-col items-center gap-0.5 ${
                           gameMode === 'story' 
                             ? 'bg-amber-500/10 text-amber-400 border-amber-500/50 shadow-[0_0_12px_rgba(245,158,11,0.15)] animate-pulse' 
                             : 'bg-slate-950/40 text-slate-400 border-slate-800 hover:border-slate-700'
                         }`}
                       >
-                        <Sparkles className={`w-3.5 h-3.5 ${gameMode === 'story' ? 'text-amber-400' : 'text-slate-500'}`} />
+                        <Sparkles className={`w-3 h-3 ${gameMode === 'story' ? 'text-amber-400' : 'text-slate-500'}`} />
                         <span>CLUCK STORY</span>
                       </button>
                     </div>
-                    <p className="text-[8px] text-slate-400 text-center opacity-80 leading-snug">
+                    <p className="text-[7px] sm:text-[8px] text-slate-400 text-center opacity-80 leading-snug">
                       {gameMode === 'normal' 
                         ? "Continuous cosmic hazards & scaling enemy toughness." 
                         : "Goofy multi-wave narrative campaign. Defeat the space hens!"}
@@ -512,43 +611,51 @@ export default function App() {
                   <button
                     id="play-game-btn"
                     onClick={handleStartGame}
-                    className="w-full py-4 bg-cyan-500 text-slate-950 font-black rounded-sm skew-x-[-12deg] shadow-[0_0_30px_rgba(34,211,238,0.4)] hover:shadow-[0_0_50px_rgba(34,211,238,0.6)] hover:bg-cyan-400 uppercase tracking-widest text-lg flex items-center justify-center gap-2 transition duration-300 transform active:scale-[0.98]"
+                    className="w-full py-3.5 bg-cyan-500 text-slate-950 font-black rounded-lg shadow-[0_0_30px_rgba(34,211,238,0.4)] hover:shadow-[0_0_50px_rgba(34,211,238,0.6)] hover:bg-cyan-400 uppercase tracking-widest text-base flex items-center justify-center gap-2 transition duration-300 transform active:scale-[0.98] select-none cursor-pointer"
                   >
-                    <div className="flex items-center gap-2 skew-x-[12deg]">
-                      <Play className="w-5 h-5 fill-current text-slate-950" />
-                      <span>DEPLOY SHIP</span>
-                    </div>
+                    <Play className="w-5 h-5 fill-current text-slate-950" />
+                    <span>DEPLOY SHIP</span>
                   </button>
 
-                  <div className="grid grid-cols-3 gap-2">
+                  {/* HIGH-CONTRAST CONSOLE DECK BUTTONS - Guaranteed display with flex structure */}
+                  <div className="flex justify-between items-stretch gap-2 w-full">
                     {/* HANGAR STORE */}
                     <button
                       id="open-store-btn"
                       onClick={() => { SynthAudio.playCollect(); setGameState('upgrades'); }}
-                      className="py-2.5 px-2 bg-slate-900/60 border border-slate-700/50 hover:border-slate-600 text-slate-200 rounded-xl text-[10px] font-bold tracking-tight transition flex flex-col items-center justify-center gap-1 font-mono shadow-md"
+                      className="flex-1 py-3 px-1.5 bg-slate-900 border border-slate-800 hover:border-yellow-500/50 text-slate-200 rounded-xl text-[9px] sm:text-[10px] font-bold tracking-tight transition flex flex-col items-center justify-center gap-1.5 font-mono shadow-md cursor-pointer group active:scale-[0.97]"
                     >
-                      <Coins className="w-4 h-4 text-yellow-400" />
-                      <span>HANGAR ({stats.totalScrap})</span>
+                      <Coins className="w-4 h-4 text-yellow-400 group-hover:scale-110 transition-transform duration-200" />
+                      <div className="flex flex-col items-center">
+                        <span className="uppercase text-slate-300">HANGAR</span>
+                        <span className="text-[8px] text-yellow-400 font-black">({stats.totalScrap})</span>
+                      </div>
                     </button>
 
                     {/* RECORDS AND STATS */}
                     <button
                       id="open-stats-btn"
                       onClick={() => { SynthAudio.playCollect(); setGameState('stats'); }}
-                      className="py-2.5 px-2 bg-slate-900/60 border border-slate-700/50 hover:border-slate-600 text-slate-200 rounded-xl text-[10px] font-bold tracking-tight transition flex flex-col items-center justify-center gap-1 font-mono shadow-md"
+                      className="flex-1 py-3 px-1.5 bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-slate-200 rounded-xl text-[9px] sm:text-[10px] font-bold tracking-tight transition flex flex-col items-center justify-center gap-1.5 font-mono shadow-md cursor-pointer group active:scale-[0.97]"
                     >
-                      <Award className="w-4 h-4 text-cyan-400" />
-                      <span>RECORDS</span>
+                      <Award className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform duration-200" />
+                      <div className="flex flex-col items-center">
+                        <span className="uppercase text-slate-300">RECORDS</span>
+                        <span className="text-[8px] text-cyan-400 font-bold">BEST: {stats.highScore}</span>
+                      </div>
                     </button>
 
                     {/* LIVE LEADERBOARD */}
                     <button
                       id="open-leaderboard-btn"
                       onClick={() => { SynthAudio.playCollect(); setGameState('leaderboard'); }}
-                      className="py-2.5 px-2 bg-slate-900/60 border border-slate-700/50 hover:border-slate-600 text-slate-200 rounded-xl text-[10px] font-bold tracking-tight transition flex flex-col items-center justify-center gap-1 font-mono shadow-md"
+                      className="flex-1 py-3 px-1.5 bg-slate-900 border border-slate-800 hover:border-amber-500/50 text-slate-200 rounded-xl text-[9px] sm:text-[10px] font-bold tracking-tight transition flex flex-col items-center justify-center gap-1.5 font-mono shadow-md cursor-pointer group active:scale-[0.97]"
                     >
-                      <Trophy className="w-4 h-4 text-amber-400 animate-pulse" />
-                      <span>LEADERS</span>
+                      <Trophy className="w-4 h-4 text-amber-400 animate-pulse group-hover:scale-110 transition-transform duration-200" />
+                      <div className="flex flex-col items-center">
+                        <span className="uppercase text-slate-300">LEADERS</span>
+                        <span className="text-[8px] text-amber-400 font-bold">TOP RANKS</span>
+                      </div>
                     </button>
                   </div>
 
@@ -561,15 +668,15 @@ export default function App() {
                       setGameState('game');
                       SynthAudio.startMusic();
                     }}
-                    className="w-full py-2 bg-slate-900/40 hover:bg-slate-900 border border-slate-800 text-cyan-400 font-bold rounded-lg text-[9px] font-mono tracking-widest transition flex items-center justify-center gap-1.5 uppercase shadow-sm"
+                    className="w-full py-2 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 font-bold rounded-lg text-[9px] font-mono tracking-widest transition flex items-center justify-center gap-1.5 uppercase shadow-sm cursor-pointer"
                   >
                     <Award className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
                     <span>LAUNCH FLIGHT ACADEMY</span>
                   </button>
 
                   {/* Simple Touch controls hint */}
-                  <div className="text-center pt-2 text-[9px] text-slate-500 font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 bg-slate-900/20 py-1.5 rounded-lg border border-slate-800/40">
-                    <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping" />
+                  <div className="text-center pt-1.5 text-[8px] text-slate-500 font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 bg-slate-900/20 py-1.5 rounded-lg border border-slate-850">
+                    <span className="w-1 h-1 bg-emerald-400 rounded-full animate-ping" />
                     <span>SYSTEM STATUS: ALL SYSTEMS NOMINAL</span>
                   </div>
                 </div>
@@ -594,6 +701,12 @@ export default function App() {
                   isTutorial={tutorialActive}
                   onTutorialComplete={handleTutorialComplete}
                   gameMode={gameMode}
+                  starterLoadout={starterLoadout}
+                  onSelectStarterLoadout={setStarterLoadout}
+                  musicOn={musicOn}
+                  setMusicOn={setMusicOn}
+                  sfxOn={sfxOn}
+                  setSfxOn={setSfxOn}
                 />
 
                 {/* PAUSE SCREEN MODAL OVERLAY */}
@@ -675,7 +788,7 @@ export default function App() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-slate-950/40 p-6 flex flex-col justify-between font-sans text-slate-100"
+                className="absolute inset-0 bg-slate-950/40 p-6 flex flex-col justify-between font-sans text-slate-100 overflow-y-auto scrollbar-none"
               >
                 {/* Header */}
                 <div className="text-center py-4">
@@ -733,6 +846,25 @@ export default function App() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Death Analysis Review Panel */}
+                  {deathCause && (
+                    <div className="bg-red-950/40 border border-red-500/30 rounded-xl p-3.5 space-y-2">
+                      <div className="flex items-center gap-1.5 text-red-400 font-bold font-mono text-[9px] uppercase tracking-widest">
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                        <span>TACTICAL CASUALTY REPORT</span>
+                      </div>
+                      <p className="text-[10px] text-slate-200 font-sans italic leading-relaxed">
+                        &ldquo;{deathCause}&rdquo;
+                      </p>
+                      {suggestedUpgrade && (
+                        <div className="pt-1.5 border-t border-red-500/20 text-[9px] font-mono text-slate-450">
+                          <span className="text-cyan-400 font-bold uppercase tracking-wider block mb-0.5">RECOMMENDED COUNTERMEASURE</span>
+                          {suggestedUpgrade}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Achievements Unlocked Alert popup */}
                   {currentRun.unlockedMedalsThisRun.length > 0 && (
@@ -872,6 +1004,73 @@ export default function App() {
             </div>
           )}
         </div>
+      </div>
+
+        {/* RIGHT DECK PANEL: PILOT RECORDS & ACHIEVEMENT STATUS (Desktop Only) */}
+        <div className="hidden lg:flex flex-col w-64 h-[840px] bg-slate-900/40 border border-slate-800/80 rounded-[32px] p-5 backdrop-blur-md justify-between select-none text-slate-300 font-sans shadow-xl">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-slate-800/60 pb-3">
+              <Trophy className="w-5 h-5 text-amber-400" />
+              <div>
+                <h3 className="text-xs font-black font-mono tracking-wider text-slate-100 uppercase">PILOT LOG</h3>
+                <p className="text-[9px] font-mono text-cyan-400">● RECORDS & STATISTICS</p>
+              </div>
+            </div>
+
+            {/* Quick stats grid */}
+            <div className="grid grid-cols-2 gap-2 font-mono">
+              <div className="bg-slate-950/40 border border-slate-850 p-2 text-center rounded-xl shadow-inner">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider">High Score</p>
+                <p className="text-xs font-black text-amber-300 mt-0.5">{stats.highScore.toLocaleString()}</p>
+              </div>
+              <div className="bg-slate-950/40 border border-slate-850 p-2 text-center rounded-xl shadow-inner">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider">Runs Played</p>
+                <p className="text-xs font-black text-cyan-300 mt-0.5">{stats.runsPlayed}</p>
+              </div>
+              <div className="bg-slate-950/40 border border-slate-850 p-2 text-center rounded-xl shadow-inner">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider">Amethyst Scrap</p>
+                <p className="text-xs font-black text-yellow-400 mt-0.5">{stats.totalScrap}</p>
+              </div>
+              <div className="bg-slate-950/40 border border-slate-850 p-2 text-center rounded-xl shadow-inner">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider">Kills Total</p>
+                <p className="text-xs font-black text-rose-450 mt-0.5">{stats.enemiesDestroyed}</p>
+              </div>
+            </div>
+
+            {/* Achievements Racks */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold font-mono uppercase tracking-widest text-slate-400 block">Medals Status</span>
+              <div className="bg-slate-950/50 rounded-xl p-3 border border-slate-850 space-y-2.5 max-h-[380px] overflow-y-auto scrollbar-none font-mono shadow-inner animate-fade-in">
+                {achievements.map((ach) => (
+                  <div key={ach.id} className="flex items-start gap-2 text-[9px] leading-snug">
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-colors ${
+                      ach.unlocked 
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' 
+                        : 'bg-slate-900/60 border-slate-850 text-slate-600'
+                    }`}>
+                      {ach.unlocked ? '✓' : '•'}
+                    </div>
+                    <div>
+                      <p className={`font-black uppercase tracking-tight text-[8px] transition-colors ${ach.unlocked ? 'text-slate-200' : 'text-slate-500'}`}>
+                        {ach.title}
+                      </p>
+                      <p className="text-[7px] text-slate-500 leading-normal mt-0.5">
+                        {ach.description}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Connected Pilot Node Status */}
+          <div className="flex items-center gap-1.5 bg-slate-950/40 border border-slate-850 px-3 py-2 rounded-xl justify-center font-mono text-[8px] text-slate-400 uppercase tracking-wider shadow-inner">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="truncate max-w-[170px]">PILOT ID: {username}</span>
+          </div>
+        </div>
+
       </div>
     </div>
   );

@@ -17,7 +17,12 @@ class AudioController {
   public sfxEnabled = true;
 
   private init() {
-    if (this.ctx) return;
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(e => console.warn("Failed to resume audio context:", e));
+      }
+      return;
+    }
     try {
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new AudioCtxClass();

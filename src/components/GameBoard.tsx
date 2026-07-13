@@ -2,17 +2,23 @@ import React, { useRef, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Upgrades, SHIP_SKINS } from '../types';
 import { SynthAudio } from '../utils/audio';
-import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart } from 'lucide-react';
+import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery } from 'lucide-react';
 
 interface GameBoardProps {
   upgrades: Upgrades;
-  onGameOver: (score: number, scrapCollected: number, enemiesKilled: number) => void;
+  onGameOver: (score: number, scrapCollected: number, enemiesKilled: number, deathCause?: string, suggestedUpgrade?: string) => void;
   onPause: () => void;
   paused: boolean;
   setPaused: (paused: boolean) => void;
   isTutorial?: boolean;
   onTutorialComplete?: () => void;
   gameMode?: 'normal' | 'story';
+  starterLoadout?: 'balanced' | 'glass' | 'tank';
+  onSelectStarterLoadout?: (loadout: 'balanced' | 'glass' | 'tank') => void;
+  musicOn: boolean;
+  setMusicOn: (musicOn: boolean) => void;
+  sfxOn: boolean;
+  setSfxOn: (sfxOn: boolean) => void;
 }
 
 interface Particle {
@@ -143,6 +149,64 @@ const CHAPTER_DIALOGUES: Record<number, { intro: DialogueLine[]; outro: Dialogue
   }
 };
 
+interface RogueliteBuff {
+  id: string;
+  name: string;
+  description: string;
+  icon: 'zap' | 'shield' | 'plus' | 'magnet' | 'target' | 'heart' | 'sparkles' | 'activity';
+}
+
+const ROGUELITE_BUFF_POOL: RogueliteBuff[] = [
+  {
+    id: 'fireRate',
+    name: 'HYPER-HEAT COILS',
+    description: 'Permanent +20% Firing Speed. Calibrates ship weapon capacitors to shed heat faster.',
+    icon: 'zap'
+  },
+  {
+    id: 'pierce',
+    name: 'PHASE-PIERCE CORES',
+    description: 'Your laser bolts pierce through 1 extra enemy on impact, carrying tachyon charges.',
+    icon: 'target'
+  },
+  {
+    id: 'regen',
+    name: 'NANITE REPAIR HULL',
+    description: 'Vessel shield auto-regenerates 1 point of capacity every second continuously.',
+    icon: 'heart'
+  },
+  {
+    id: 'magnet',
+    name: 'SCRAP GRAVITY WELL',
+    description: 'Vacuum attraction range for space scrap and floating collectibles increased by +100px.',
+    icon: 'magnet'
+  },
+  {
+    id: 'maxShield',
+    name: 'AETHER REINFORCEMENT',
+    description: 'Boosts max shield hull by +25 capacity and fully repairs/charges your ship.',
+    icon: 'shield'
+  },
+  {
+    id: 'damage',
+    name: 'PHOTON AMPLIFIER',
+    description: 'Boosts weapon photon-density, giving all lasers +25% flat damage increase.',
+    icon: 'sparkles'
+  },
+  {
+    id: 'crit',
+    name: 'PRECISION OPTICS',
+    description: 'Precision targeting chips grant a flat +12% chance to land critical hits for 2x damage.',
+    icon: 'target'
+  },
+  {
+    id: 'desperation',
+    name: 'DESPERATION OVERDRIVE',
+    description: 'Unlocks Desperation Protocols: +50% fire-rate and 2x damage whenever shields are below 15%!',
+    icon: 'activity'
+  }
+];
+
 export default function GameBoard({ 
   upgrades, 
   onGameOver, 
@@ -151,10 +215,22 @@ export default function GameBoard({
   setPaused, 
   isTutorial = false, 
   onTutorialComplete,
-  gameMode = 'normal'
+  gameMode = 'normal',
+  starterLoadout = 'balanced',
+  onSelectStarterLoadout,
+  musicOn,
+  setMusicOn,
+  sfxOn,
+  setSfxOn
 }: GameBoardProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Starter loadout inside-the-game states
+  const [localStarterLoadout, setLocalStarterLoadout] = useState<'balanced' | 'glass' | 'tank' | null>(() => {
+    return isTutorial ? 'balanced' : null;
+  });
+  const [selectedTempLoadout, setSelectedTempLoadout] = useState<'balanced' | 'glass' | 'tank'>(starterLoadout || 'balanced');
 
   // Stats in UI
   const [score, setScore] = useState(0);
@@ -164,6 +240,7 @@ export default function GameBoard({
   const [bossActive, setBossActive] = useState(false);
   const [bossHealthPercent, setBossHealthPercent] = useState(0);
   const [bossName, setBossName] = useState('NEON OVERLORD');
+  const [bossImmune, setBossImmune] = useState(false);
 
   // Story Mode states
   const [chapter, setChapter] = useState(1);
@@ -190,15 +267,18 @@ export default function GameBoard({
   // Tutorial state
   const [tutStep, setTutStep] = useState(0);
   const [tutProgress, setTutProgress] = useState(0);
+  const [tutPhaseCleared, setTutPhaseCleared] = useState(false);
+  const [isTutorialCollapsed, setIsTutorialCollapsed] = useState(false);
 
-  // Audio Toggle
-  const [sfxOn, setSfxOn] = useState(SynthAudio.sfxEnabled);
-  const [musicOn, setMusicOn] = useState(SynthAudio.musicEnabled);
+  // Roguelite Pick-a-Buff choices overlay
+  const [showingBuffChoice, setShowingBuffChoice] = useState(false);
+  const [buffOptions, setBuffOptions] = useState<any[]>([]);
 
   // references for mutable game loop state to avoid React re-renders breaking 60 FPS
   const stateRef = useRef({
     tutorialStep: 0,
     tutorialProgressCount: 0,
+    tutorialPhaseCleared: false,
     hasRevivedThisRun: false,
     score: 0,
     scrap: 0,
@@ -252,6 +332,7 @@ export default function GameBoard({
     pulsarStateTimer: 0,
     lastHudUpdate: 0,
     shieldRegenTimer: 0,
+    naniteRegenTimer: 0,
     anomalyAlarmTriggered: false,
     storyMode: 'normal' as 'normal' | 'story',
     storyChapter: 1,
@@ -260,23 +341,45 @@ export default function GameBoard({
     storyKillGoal: 10,
     storyBossSpawned: false,
     storyShowingDialogue: false,
-    storyChapterTransition: false
+    storyChapterTransition: false,
+    rogueliteBuffs: {
+      fireRateMult: 1.0,
+      laserPierceBonus: 0,
+      shieldRegenBonus: 0,
+      pullRadiusBonus: 0,
+      maxShieldBonus: 0,
+      damageMult: 1.0,
+      critBonus: 0,
+      desperationUnlocked: false
+    },
+    lastBuffMilestone: 0,
+    desperationTriggered: false,
+    starterLoadout: null as 'balanced' | 'glass' | 'tank' | null,
+    showingBuffChoice: false,
   });
 
   // Keep upgrades sync'ed
   useEffect(() => {
     stateRef.current.upgrades = upgrades;
+    stateRef.current.starterLoadout = localStarterLoadout;
     const skin = SHIP_SKINS.find(s => s.id === upgrades.selectedSkin) || SHIP_SKINS[0];
     stateRef.current.player.color = skin.color;
     stateRef.current.player.trailColor = skin.trailColor;
 
-    // Derived max shield based on upgrade levels (100 to 180)
-    const mShield = 100 + (upgrades.maxShield - 1) * 20;
+    // Derived max shield based on upgrade levels & starting philosophy
+    let mShield = 100 + (upgrades.maxShield - 1) * 20;
+    const activeLoadout = localStarterLoadout || 'balanced';
+    if (activeLoadout === 'glass') {
+      mShield = 40; // Glass Cannon
+    } else if (activeLoadout === 'tank') {
+      mShield += 80; // Heavy Tank plate
+    }
+
     setMaxShield(mShield);
     stateRef.current.maxShield = mShield;
     stateRef.current.shield = mShield;
     setShield(mShield);
-  }, [upgrades]);
+  }, [upgrades, localStarterLoadout]);
 
   const showDialogueScreen = (show: boolean) => {
     setShowingDialogue(show);
@@ -286,6 +389,54 @@ export default function GameBoard({
   const setChapterTransitionScreen = (trans: boolean) => {
     setChapterTransition(trans);
     stateRef.current.storyChapterTransition = trans;
+  };
+
+  const triggerBuffSelection = () => {
+    const shuffled = [...ROGUELITE_BUFF_POOL].sort(() => 0.5 - Math.random());
+    setBuffOptions(shuffled.slice(0, 3));
+    setShowingBuffChoice(true);
+    stateRef.current.showingBuffChoice = true;
+  };
+
+  const applySelectedBuff = (buffId: string) => {
+    const state = stateRef.current;
+    if (!state.rogueliteBuffs) {
+      state.rogueliteBuffs = {
+        fireRateMult: 1.0,
+        laserPierceBonus: 0,
+        shieldRegenBonus: 0,
+        pullRadiusBonus: 0,
+        maxShieldBonus: 0,
+        damageMult: 1.0,
+        critBonus: 0,
+        desperationUnlocked: false
+      };
+    }
+
+    if (buffId === 'fireRate') {
+      state.rogueliteBuffs.fireRateMult *= 0.80; // 20% less firing delay (faster auto-fire!)
+    } else if (buffId === 'pierce') {
+      state.rogueliteBuffs.laserPierceBonus += 1;
+    } else if (buffId === 'regen') {
+      state.rogueliteBuffs.shieldRegenBonus += 1;
+    } else if (buffId === 'magnet') {
+      state.rogueliteBuffs.pullRadiusBonus += 100;
+    } else if (buffId === 'maxShield') {
+      state.maxShield += 25;
+      setMaxShield(state.maxShield);
+      state.shield = state.maxShield;
+      setShield(state.shield);
+    } else if (buffId === 'damage') {
+      state.rogueliteBuffs.damageMult *= 1.25;
+    } else if (buffId === 'crit') {
+      state.rogueliteBuffs.critBonus += 0.12;
+    } else if (buffId === 'desperation') {
+      state.rogueliteBuffs.desperationUnlocked = true;
+    }
+
+    SynthAudio.playPowerup();
+    setShowingBuffChoice(false);
+    stateRef.current.showingBuffChoice = false;
   };
 
   // Sync and initialize Story Mode
@@ -325,6 +476,68 @@ export default function GameBoard({
     const next = !sfxOn;
     setSfxOn(next);
     SynthAudio.sfxEnabled = next;
+  };
+
+  const advanceTutorialStep = () => {
+    const state = stateRef.current;
+    if (!state.tutorialPhaseCleared) return;
+
+    SynthAudio.playPowerup();
+    state.tutorialProgressCount = 0;
+    state.tutorialPhaseCleared = false;
+    setTutPhaseCleared(false);
+
+    if (state.tutorialStep === 0) {
+      state.tutorialStep = 1;
+      setTutStep(1);
+      // Spawn 3 static Target Orbs for shooting practice
+      for (let k = 0; k < 3; k++) {
+        state.enemies.push({
+          id: state.nextEnemyId++,
+          x: 50 + k * 105,
+          y: 120,
+          width: 32,
+          height: 32,
+          speed: 0,
+          type: 'scout',
+          color: '#38bdf8', // Neon Sky Blue Target
+          health: 15,
+          maxHealth: 15,
+          shootCooldown: 99999, // Static target doesn't return fire
+          phase: 0,
+          phaseSpeed: 0
+        });
+      }
+    } else if (state.tutorialStep === 1) {
+      state.tutorialStep = 2;
+      setTutStep(2);
+      // Spawn 3 floating Amethyst Scraps
+      for (let k = 0; k < 3; k++) {
+        state.collectibles.push({
+          x: 70 + k * 100,
+          y: 100,
+          type: 'scrap',
+          color: '#d946ef', // purple magenta
+          size: 8,
+          pulse: 0
+        });
+      }
+    } else if (state.tutorialStep === 2) {
+      state.tutorialStep = 3;
+      setTutStep(3);
+      // Spawn powerups
+      state.collectibles.push(
+        { x: 110, y: 130, type: 'heal', color: '#10b981', size: 9, pulse: 0 },
+        { x: 230, y: 130, type: 'double', color: '#3b82f6', size: 9, pulse: 0 }
+      );
+    } else if (state.tutorialStep === 3) {
+      state.tutorialStep = 4;
+      setTutStep(4);
+    } else if (state.tutorialStep === 4) {
+      if (onTutorialComplete) {
+        onTutorialComplete();
+      }
+    }
   };
 
   // Build/Init background stars
@@ -425,6 +638,11 @@ export default function GameBoard({
 
     // Keyboard handlers for keyboard movement & pause toggle
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (stateRef.current.showingBuffChoice) {
+        if (['Escape', 'p', 'P'].includes(e.key)) {
+          return;
+        }
+      }
       if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
         e.preventDefault();
       }
@@ -501,7 +719,7 @@ export default function GameBoard({
     const gameLoop = (timestamp: number) => {
       if (!isMounted) return;
 
-      if (paused) {
+      if (paused || !stateRef.current.starterLoadout || stateRef.current.showingBuffChoice) {
         // Draw pause screen overlay slightly, keeping frame rate ticking for starry background
         stateRef.current.lastTime = timestamp;
         ctx.fillStyle = 'rgba(10, 10, 18, 0.4)';
@@ -567,6 +785,11 @@ export default function GameBoard({
       }
       if (state.cosmicEvent === 'warp') {
         speed *= 1.25; // Hyperspace warp: +25% speed
+      }
+      if (state.starterLoadout === 'glass') {
+        speed *= 1.10; // Glass Cannon: +10% speed
+      } else if (state.starterLoadout === 'tank') {
+        speed *= 0.80; // Heavy Tank: 20% slower movement
       }
       let dx = 0;
       let dy = 0;
@@ -659,6 +882,16 @@ export default function GameBoard({
         }
       }
 
+      // Nanite Repair Hull regeneration (stackable): auto-regenerates shieldRegenBonus capacity every 1.0 second continuously when alive
+      if (state.rogueliteBuffs?.shieldRegenBonus > 0 && state.shield > 0 && state.shield < state.maxShield) {
+        state.naniteRegenTimer += dt;
+        if (state.naniteRegenTimer >= 1.0) {
+          state.naniteRegenTimer = 0;
+          state.shield = Math.min(state.maxShield, state.shield + state.rogueliteBuffs.shieldRegenBonus);
+          setShield(state.shield);
+        }
+      }
+
       // Update Power-up timers
       if (player.powerups.invincibility > 0) {
         player.powerups.invincibility = Math.max(0, player.powerups.invincibility - dt);
@@ -699,9 +932,30 @@ export default function GameBoard({
       if (state.cosmicEvent === 'warp') {
         shootDelay *= 0.65;
       }
+
+      // Apply Tank Loadout shooting delay penalty (+30% slower)
+      if (state.starterLoadout === 'tank') {
+        shootDelay *= 1.30;
+      }
+
+      // Apply Roguelite permanent Firing Speed buff (Hyper-Heat Coils)
+      if (state.rogueliteBuffs?.fireRateMult) {
+        shootDelay *= state.rogueliteBuffs.fireRateMult;
+      }
+
+      // Near-Death Desperation Boost (Tension Mechanic)
+      const isDesperationActive = state.shield > 0 && state.shield < (state.maxShield * 0.15);
+      if (isDesperationActive) {
+        if (state.rogueliteBuffs?.desperationUnlocked) {
+          shootDelay *= 0.50; // Desperation Overdrive: +100% faster fire rate (0.5x delay)
+        } else {
+          shootDelay *= 0.70; // Default close-call: +43% faster fire rate (0.7x delay)
+        }
+      }
       
       if (state.shootTimer >= shootDelay) {
         state.shootTimer = 0;
+        const preCount = state.projectiles.length;
         
         const selectedWpn = upgrades.selectedWeapon || 'plasma';
         const wpnLevel = selectedWpn === 'plasma'
@@ -717,9 +971,21 @@ export default function GameBoard({
         const hasDoublePower = player.powerups.doubleLaser > 0;
         const currentWeaponType = hasDoublePower ? Math.max(3, wpnLevel) : wpnLevel;
 
-        // Critical hit check
-        const isCrit = Math.random() < (upgrades.criticalChance || 0) * 0.07;
-        const damageMult = isCrit ? 2.0 : 1.0;
+        // Apply Loadout, Photons, & Desperation damage multipliers
+        let baseDamageMult = 1.0;
+        if (state.starterLoadout === 'glass') {
+          baseDamageMult *= 1.5; // Glass Cannon: +50% laser power!
+        }
+        if (state.rogueliteBuffs?.damageMult) {
+          baseDamageMult *= state.rogueliteBuffs.damageMult; // Photon Amplifier permanent +25%
+        }
+        if (isDesperationActive && state.rogueliteBuffs?.desperationUnlocked) {
+          baseDamageMult *= 2.0; // Desperation Overdrive: 2x weapon output!
+        }
+
+        // Critical hit check (incorporating flat crit bonuses)
+        const isCrit = Math.random() < ((upgrades.criticalChance || 0) * 0.07 + (state.rogueliteBuffs?.critBonus || 0));
+        const damageMult = (isCrit ? 2.0 : 1.0) * baseDamageMult;
         const colorOverride = isCrit ? '#facc15' : null;
         const sizeMultiplier = isCrit ? 1.6 : 1.0;
 
@@ -910,6 +1176,21 @@ export default function GameBoard({
             SynthAudio.playShoot();
           }
         }
+
+        const postCount = state.projectiles.length;
+        if (hasDoublePower && postCount > preCount) {
+          const added = state.projectiles.slice(preCount);
+          for (let i = 0; i < added.length; i++) {
+            const p = added[i];
+            // Offset the original projectile slightly to the left
+            p.x -= 6;
+            // Add a duplicated projectile slightly to the right
+            state.projectiles.push({
+              ...p,
+              x: p.x + 12, // since p.x has been subtracted by 6, p.x + 12 is original x + 6
+            });
+          }
+        }
       }
 
       // Companion Sentry Drone Auto-fire Update
@@ -1091,81 +1372,39 @@ export default function GameBoard({
 
       // 3. SPAWN ENEMIES
       if (isTutorial) {
-        // Handle Tutorial step-by-step state machine
+        // Handle Tutorial step-by-step state machine with manual progression
         const player = state.player;
         if (state.tutorialStep === 0) {
           // Movement training: trigger step 1 once the player moves away from the initial location
           if (player.x !== 180 || player.y !== 500) {
             state.tutorialProgressCount += dt;
             if (state.tutorialProgressCount >= 1.2) {
-              state.tutorialStep = 1;
-              state.tutorialProgressCount = 0;
-              // Spawn 3 static Target Orbs for shooting practice
-              for (let k = 0; k < 3; k++) {
-                state.enemies.push({
-                  id: state.nextEnemyId++,
-                  x: 50 + k * 105,
-                  y: 120,
-                  width: 32,
-                  height: 32,
-                  speed: 0,
-                  type: 'scout',
-                  color: '#38bdf8', // Neon Sky Blue Target
-                  health: 15,
-                  maxHealth: 15,
-                  shootCooldown: 99999, // Static target doesn't return fire
-                  phase: 0,
-                  phaseSpeed: 0
-                });
-              }
+              state.tutorialPhaseCleared = true;
             }
           }
         } else if (state.tutorialStep === 1) {
           // Shooting practice: Advance to salvage once all targets are cleared
           if (state.enemies.length === 0) {
-            state.tutorialStep = 2;
-            state.tutorialProgressCount = 0;
-            // Spawn 3 floating Amethyst Scraps
-            for (let k = 0; k < 3; k++) {
-              state.collectibles.push({
-                x: 70 + k * 100,
-                y: 100,
-                type: 'scrap',
-                color: '#d946ef', // purple magenta
-                size: 8,
-                pulse: 0
-              });
-            }
+            state.tutorialPhaseCleared = true;
           }
         } else if (state.tutorialStep === 2) {
           // Salvage practice: Advance to upgrades once they harvest 3 scraps
           if (state.tutorialProgressCount >= 3) {
-            state.tutorialStep = 3;
-            state.tutorialProgressCount = 0;
-            // Spawn a green Shield and blue Double-Laser Power-up
-            state.collectibles.push(
-              { x: 110, y: 130, type: 'heal', color: '#10b981', size: 9, pulse: 0 },
-              { x: 230, y: 130, type: 'double', color: '#3b82f6', size: 9, pulse: 0 }
-            );
+            state.tutorialPhaseCleared = true;
           }
         } else if (state.tutorialStep === 3) {
-          // Power-up training: Advance if they pick up items or after timeout
+          // Power-up training: Advance if they pick up items
           if (player.powerups.doubleLaser > 0 || state.shield > 100 || state.tutorialProgressCount >= 1) {
-            state.tutorialStep = 4;
-            state.tutorialProgressCount = 0;
+            state.tutorialPhaseCleared = true;
           }
         } else if (state.tutorialStep === 4) {
-          state.tutorialProgressCount += dt;
-          if (state.tutorialProgressCount >= 4.0) {
-            if (onTutorialComplete) {
-              onTutorialComplete();
-            }
-          }
+          // Graduation phase: wait for manual click to complete
+          state.tutorialPhaseCleared = true;
         }
       } else {
         if (state.storyMode === 'story') {
           // --- STORY MODE SPAWNING ---
-          if (showingDialogue || chapterTransition) {
+          if (state.storyShowingDialogue || state.storyChapterTransition) {
             state.spawnTimer = 0;
           } else {
             state.spawnTimer += enemyDt;
@@ -1453,9 +1692,32 @@ export default function GameBoard({
             if (enemy.x < 10) enemy.x = 10;
             if (enemy.x > width - enemy.width - 10) enemy.x = width - enemy.width - 10;
           }
+          
+          // Update Bullet Hell Phase for Boss 3 (Pulse Executioner)
+          const bIdx = enemy.bossIndex || 1;
+          if (bIdx === 3) {
+            const healthPct = enemy.health / enemy.maxHealth;
+            if (healthPct <= 0.55 && !enemy.bulletHellPhaseTriggered) {
+              enemy.bulletHellPhaseTriggered = true;
+              enemy.bulletHellTimer = 8.0; // 8 seconds of absolute survival
+              enemy.isImmune = true;
+              setCosmicWarningBanner("🚨 WARNING: CORE OVERLOAD INITIATED! SURVIVE FOR 8 SECONDS!");
+              SynthAudio.playPowerup();
+            }
+
+            if (enemy.bulletHellTimer > 0) {
+              enemy.bulletHellTimer -= enemyDt;
+              if (enemy.bulletHellTimer <= 0) {
+                enemy.isImmune = false;
+                setCosmicWarningBanner("✅ BOSS DEFENSIVE BARRIER DEPLETED! WEAPONS SYSTEM COMPROMISED!");
+                setTimeout(() => setCosmicWarningBanner(null), 3500);
+              }
+            }
+          }
 
           // Update UI
           setBossHealthPercent(Math.max(0, Math.round((enemy.health / enemy.maxHealth) * 100)));
+          setBossImmune(!!enemy.isImmune);
 
            // Boss weapons
           enemy.shootCooldown -= enemyDt;
@@ -1519,21 +1781,41 @@ export default function GameBoard({
               });
             } else if (bIdx === 3) {
               // Boss 3: Pulse Executioner - Rapid Spiral Vortex!
-              enemy.shootCooldown = 0.35; // rapid fire
-              const baseAngle = enemy.phase * 3.14;
-              const prCount = 4;
-              for (let i = 0; i < prCount; i++) {
-                const ang = baseAngle + (i * Math.PI * 2) / prCount;
-                state.projectiles.push({
-                  x: bossCenterX,
-                  y: bossBottomY - 10,
-                  vx: Math.sin(ang) * 190,
-                  vy: Math.cos(ang) * 190 + 90, // bias downwards
-                  color: '#d946ef',
-                  size: 4.5,
-                  damage: 10,
-                  fromPlayer: false
-                });
+              if (enemy.bulletHellTimer > 0) {
+                // Kinetic overcharge bullet hell: 3x faster, massive spiral of gold stars!
+                enemy.shootCooldown = 0.095;
+                const baseAngle = enemy.phase * 5.8 + Math.sin(timestamp / 120) * 1.5;
+                const prCount = 5;
+                for (let j = 0; j < prCount; j++) {
+                  const ang = baseAngle + (j * Math.PI * 2) / prCount;
+                  state.projectiles.push({
+                    x: bossCenterX,
+                    y: bossBottomY - 10,
+                    vx: Math.sin(ang) * 210,
+                    vy: Math.cos(ang) * 210 + 30, // slow descent
+                    color: '#fbbf24', // Gold lightning glow
+                    size: 5,
+                    damage: 12,
+                    fromPlayer: false
+                  });
+                }
+              } else {
+                enemy.shootCooldown = 0.35; // rapid fire
+                const baseAngle = enemy.phase * 3.14;
+                const prCount = 4;
+                for (let i = 0; i < prCount; i++) {
+                  const ang = baseAngle + (i * Math.PI * 2) / prCount;
+                  state.projectiles.push({
+                    x: bossCenterX,
+                    y: bossBottomY - 10,
+                    vx: Math.sin(ang) * 190,
+                    vy: Math.cos(ang) * 190 + 90, // bias downwards
+                    color: '#d946ef',
+                    size: 4.5,
+                    damage: 10,
+                    fromPlayer: false
+                  });
+                }
               }
             } else if (bIdx === 4) {
               // Boss 4: Aether Singularity - Alternates between Expanding Rings and Sniper shots
@@ -2109,8 +2391,12 @@ export default function GameBoard({
 
         // Player laser vs Enemies
         if (proj.fromPlayer) {
+          proj.hitEnemies = proj.hitEnemies || [];
           for (let i = 0; i < state.enemies.length; i++) {
             const enemy = state.enemies[i];
+            const enemyId = enemy.id || i;
+            if (proj.hitEnemies.includes(enemyId)) continue;
+
             if (
               effectiveX > enemy.x &&
               effectiveX < enemy.x + enemy.width &&
@@ -2120,8 +2406,56 @@ export default function GameBoard({
               // Spark particles
               createExplosion(effectiveX, proj.y, enemy.color, 4);
 
-              // Take Damage
-              enemy.health -= proj.damage;
+              // Take Damage (Boss wing vs main body branch with immunity checks)
+              if (enemy.type === 'boss') {
+                if (enemy.isImmune) {
+                  // Completely immune! Play deflection sparks and sound
+                  createExplosion(effectiveX, proj.y, '#facc15', 7); // gold sparks
+                  proj.hitEnemies.push(enemyId);
+                  
+                  // Piercing check
+                  const pierceBonus = state.rogueliteBuffs?.laserPierceBonus || 0;
+                  proj.piercedCount = proj.piercedCount || 0;
+                  if (proj.piercedCount < pierceBonus) {
+                    proj.piercedCount++;
+                    continue;
+                  }
+                  return false; // delete bullet
+                }
+
+                const cx = enemy.x + enemy.width / 2;
+                if (effectiveX < cx - enemy.width * 0.15 && enemy.leftWingAlive !== false) {
+                  enemy.leftWingHp = (enemy.leftWingHp !== undefined ? enemy.leftWingHp : 180) - proj.damage;
+                  createExplosion(effectiveX, proj.y, '#facc15', 3); // sparks
+                  if (enemy.leftWingHp <= 0) {
+                    enemy.leftWingAlive = false;
+                    enemy.speed = (enemy.speed || 1.2) * 0.65;
+                    enemy.shootCooldown = (enemy.shootCooldown || 1.0) * 0.55; // fires much faster!
+                    createExplosion(enemy.x + enemy.width * 0.15, enemy.y + enemy.height * 0.2, '#ef4444', 25);
+                    SynthAudio.playExplosion();
+                    setCosmicWarningBanner("⚠️ BOSS LEFT WING DESTROYED! SPEED DECREASED, WEAPON CORE FLUX!");
+                    setTimeout(() => setCosmicWarningBanner(null), 3500);
+                  }
+                  enemy.health -= proj.damage * 0.4;
+                } else if (effectiveX > cx + enemy.width * 0.15 && enemy.rightWingAlive !== false) {
+                  enemy.rightWingHp = (enemy.rightWingHp !== undefined ? enemy.rightWingHp : 180) - proj.damage;
+                  createExplosion(effectiveX, proj.y, '#facc15', 3); // sparks
+                  if (enemy.rightWingHp <= 0) {
+                    enemy.rightWingAlive = false;
+                    enemy.speed = (enemy.speed || 1.2) * 0.65;
+                    enemy.shootCooldown = (enemy.shootCooldown || 1.0) * 0.55; // fires much faster!
+                    createExplosion(enemy.x + enemy.width * 0.85, enemy.y + enemy.height * 0.2, '#ef4444', 25);
+                    SynthAudio.playExplosion();
+                    setCosmicWarningBanner("⚠️ BOSS RIGHT WING DESTROYED! SPEED DECREASED, WEAPON CORE FLUX!");
+                    setTimeout(() => setCosmicWarningBanner(null), 3500);
+                  }
+                  enemy.health -= proj.damage * 0.4;
+                } else {
+                  enemy.health -= proj.damage;
+                }
+              } else {
+                enemy.health -= proj.damage;
+              }
 
               if (proj.isNeutron && proj.size > 3) {
                 // Split on impact with enemy!
@@ -2159,6 +2493,9 @@ export default function GameBoard({
                   setScrap(state.scrap);
                   setBossActive(false);
                   state.bossCooldownTimer = 75; // 75 seconds of peace between bosses
+                  
+                  // Trigger Roguelite pick-a-buff overlay!
+                  triggerBuffSelection();
                 } else if ((enemy.type as any) === 'asteroid') {
                   // Asteroid splits into 3 pieces of amethyst scrap!
                   for (let k = 0; k < 3; k++) {
@@ -2178,6 +2515,15 @@ export default function GameBoard({
                 
                 // Remove enemy
                 state.enemies.splice(i, 1);
+              }
+
+              // Apply Pierce Bonus
+              proj.hitEnemies.push(enemyId);
+              const pierceBonus = state.rogueliteBuffs?.laserPierceBonus || 0;
+              proj.piercedCount = proj.piercedCount || 0;
+              if (proj.piercedCount < pierceBonus) {
+                proj.piercedCount++;
+                continue; // Skip bullet deletion, let it pierce!
               }
 
               return false; // delete bullet
@@ -2223,16 +2569,17 @@ export default function GameBoard({
 
         // Magnet range based on upgrade level & active power-up (Level 1: 50px, Level 5: 150px. Active power-up: +200px!)
         const hasMagnetPower = player.powerups.magnet > 0;
-        let magnetRange = 50 + (upgrades.scrapMagnet * 25) + (hasMagnetPower ? 200 : 0);
+        const pullRadiusBonus = stateRef.current.rogueliteBuffs?.pullRadiusBonus || 0;
+        let magnetRange = 50 + (upgrades.scrapMagnet * 25) + (hasMagnetPower ? 200 : 0) + pullRadiusBonus;
         
         // Apply Sol Sovereign skin passive (+100px item attraction magnet range)
         if (upgrades.selectedSkin === 'gold') {
           magnetRange += 100;
         }
 
-        // In the tutorial, grant infinite magnet range to guarantee collection and prevent softlocks
+        // In the tutorial, grant a generous magnet range to make collection easy but not automatic
         if (isTutorial) {
-          magnetRange = 99999;
+          magnetRange = 150;
         }
 
         if (dist < magnetRange) {
@@ -2244,6 +2591,12 @@ export default function GameBoard({
         } else {
           // Drift down slowly
           item.y += 110 * dt;
+
+          // In tutorial, wrap items to top to prevent softlocks if they are missed
+          if (isTutorial && item.y > height) {
+            item.y = 40;
+            item.x = 50 + Math.random() * (width - 100);
+          }
         }
 
         // Draw highly distinguishable, high-fidelity glowing geometries and icons for each item type
@@ -2480,6 +2833,14 @@ export default function GameBoard({
             state.shield = Math.min(state.maxShield, state.shield + 25);
             setShield(state.shield);
             SynthAudio.playPowerup();
+            
+            // Score Multiplier Risk/Reward Rule:
+            // Collecting a heal halves the current combo score multiplier rather than a full reset!
+            state.multiplier = Math.max(1.0, Number((state.multiplier / 2).toFixed(1)));
+            state.multiplierTimer = 4.0; // Refresh timer so they can maintain the remaining combo
+            
+            setCosmicWarningBanner("⚠️ HEAL PROTOCOL ENGAGED: COMBO MULTIPLIER HALVED!");
+            setTimeout(() => setCosmicWarningBanner(null), 3000);
           } else if (item.type === 'invincibility') {
             player.powerups.invincibility = 8.0; // 8 seconds of ultimate shield
             setInvincibilityDuration(8);
@@ -2672,6 +3033,164 @@ export default function GameBoard({
         ctx.restore();
       }
 
+      // --- FLIGHT ACADEMY CANVAS INDICATORS ---
+      if (isTutorial) {
+        const player = state.player;
+        const playerCenterX = player.x + player.width / 2;
+        const playerCenterY = player.y + player.height / 2;
+
+        ctx.save();
+        if (state.tutorialStep === 0) {
+          // Pulse value
+          const pulse = 1 + Math.sin(timestamp / 150) * 0.15;
+          ctx.strokeStyle = 'rgba(6, 182, 212, 0.5)';
+          ctx.lineWidth = 1.5;
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = '#06b6d4';
+          
+          // Concentric dashed ring around player
+          ctx.setLineDash([4, 6]);
+          ctx.beginPath();
+          ctx.arc(playerCenterX, playerCenterY, 50 * pulse, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Steering indicator text
+          ctx.shadowBlur = 4;
+          ctx.fillStyle = '#22d3ee';
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText("MANEUVER VESSEL", playerCenterX, playerCenterY + player.height + 25);
+          ctx.fillStyle = 'rgba(34, 211, 238, 0.7)';
+          ctx.fillText("[ WASD / ARROWS / DRAG ]", playerCenterX, playerCenterY + player.height + 36);
+
+        } else if (state.tutorialStep === 1) {
+          // Draw targeting reticle on all targets
+          state.enemies.forEach((enemy) => {
+            const ex = enemy.x + enemy.width / 2;
+            const ey = enemy.y + enemy.height / 2;
+            const angle = (timestamp / 200) % (Math.PI * 2);
+            
+            ctx.strokeStyle = '#22d3ee';
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = '#22d3ee';
+            ctx.lineWidth = 1.5;
+            
+            // Spinning outer brackets
+            ctx.beginPath();
+            ctx.arc(ex, ey, enemy.width * 0.9, angle, angle + Math.PI / 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(ex, ey, enemy.width * 0.9, angle + Math.PI, angle + Math.PI * 1.5);
+            ctx.stroke();
+
+            // Inner crosshair
+            ctx.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(ex - 8, ey); ctx.lineTo(ex + 8, ey);
+            ctx.moveTo(ex, ey - 8); ctx.lineTo(ex, ey + 8);
+            ctx.stroke();
+
+            // Target lock text
+            ctx.fillStyle = '#22d3ee';
+            ctx.font = 'bold 8px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText("LOCK_ON [HP:15]", ex, ey - enemy.height / 2 - 8);
+
+            // Laser alignment lines from player ship
+            ctx.strokeStyle = 'rgba(34, 211, 238, 0.15)';
+            ctx.setLineDash([2, 4]);
+            ctx.beginPath();
+            ctx.moveTo(playerCenterX, player.y);
+            ctx.lineTo(ex, ey);
+            ctx.stroke();
+          });
+
+        } else if (state.tutorialStep === 2) {
+          // Highlight scraps
+          state.collectibles.forEach((item) => {
+            if (item.type === 'scrap') {
+              const pulse = 8 + Math.sin(timestamp / 80) * 3;
+              
+              ctx.strokeStyle = '#d946ef'; // Amethyst Magenta
+              ctx.shadowBlur = 10;
+              ctx.shadowColor = '#d946ef';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([2, 3]);
+              
+              ctx.beginPath();
+              ctx.arc(item.x, item.y, pulse + 12, 0, Math.PI * 2);
+              ctx.stroke();
+
+              // Draw little lock arrow towards player
+              const dist = Math.hypot(playerCenterX - item.x, playerCenterY - item.y);
+              if (dist > 10) {
+                const dx = (playerCenterX - item.x) / dist;
+                const dy = (playerCenterY - item.y) / dist;
+                ctx.fillStyle = '#f472b6';
+                ctx.beginPath();
+                ctx.arc(item.x + dx * 20, item.y + dy * 20, 2, 0, Math.PI * 2);
+                ctx.fill();
+              }
+            }
+          });
+
+        } else if (state.tutorialStep === 3) {
+          // Highlight upgrades
+          state.collectibles.forEach((item) => {
+            const pulse = 10 + Math.sin(timestamp / 60) * 2.5;
+            ctx.strokeStyle = item.color;
+            ctx.shadowBlur = 12;
+            ctx.shadowColor = item.color;
+            ctx.lineWidth = 1.5;
+            
+            // Draw hexagonal target rings
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+              const angle = (i * Math.PI) / 3 + (timestamp / 300);
+              const px = item.x + Math.cos(angle) * (pulse + 4);
+              const py = item.y + Math.sin(angle) * (pulse + 4);
+              if (i === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.stroke();
+
+            // Label text
+            ctx.fillStyle = item.color;
+            ctx.font = 'bold 8px "JetBrains Mono", monospace';
+            ctx.textAlign = 'center';
+            const label = item.type === 'heal' ? 'SHIELD RECHARGE' : 'DOUBLE-BLASTER';
+            ctx.fillText(label, item.x, item.y - pulse - 6);
+          });
+
+        } else if (state.tutorialStep === 4) {
+          // Draw warp streaks
+          ctx.strokeStyle = 'rgba(34, 211, 238, 0.3)';
+          ctx.lineWidth = 1.5;
+          ctx.shadowBlur = 8;
+          ctx.shadowColor = '#22d3ee';
+          for (let i = 0; i < 8; i++) {
+            const x = (i * 50 + timestamp) % width;
+            const y = (i * 90 + timestamp * 2) % height;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x, y + 25);
+            ctx.stroke();
+          }
+
+          // Warp warning overlay
+          ctx.fillStyle = 'rgba(6, 182, 212, 0.8)';
+          ctx.font = 'bold 12px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText("CADET TRAINING COMPLETE", width / 2, height / 2 - 20);
+          ctx.font = '9px "JetBrains Mono", monospace';
+          ctx.fillStyle = 'rgba(34, 211, 238, 0.6)';
+          ctx.fillText("INITIATING HYPERSPACE ENGAGEMENT...", width / 2, height / 2);
+        }
+        ctx.restore();
+      }
+
       // 7.7. HUD SYNCHRONIZER (Optimized throttling)
       if (timestamp - state.lastHudUpdate >= 200) {
         state.lastHudUpdate = timestamp;
@@ -2684,6 +3203,7 @@ export default function GameBoard({
         if (isTutorial) {
           setTutStep(state.tutorialStep);
           setTutProgress(state.tutorialProgressCount);
+          setTutPhaseCleared(!!state.tutorialPhaseCleared);
         }
       }
 
@@ -2710,7 +3230,7 @@ export default function GameBoard({
 
   // Touch and Mouse Move Drag controls - delta movement to avoid finger blocking the ship
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (paused) return;
+    if (paused || stateRef.current.showingBuffChoice) return;
     const touch = e.touches[0];
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -2721,7 +3241,7 @@ export default function GameBoard({
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (!stateRef.current.touch.isDragging || paused) return;
+    if (!stateRef.current.touch.isDragging || paused || stateRef.current.showingBuffChoice) return;
     const touch = e.touches[0];
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -2749,7 +3269,7 @@ export default function GameBoard({
 
   // Drag and click mouse control fallback
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (paused) return;
+    if (paused || stateRef.current.showingBuffChoice) return;
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -2759,7 +3279,7 @@ export default function GameBoard({
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!stateRef.current.touch.isDragging || paused) return;
+    if (!stateRef.current.touch.isDragging || paused || stateRef.current.showingBuffChoice) return;
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
 
@@ -2924,55 +3444,263 @@ export default function GameBoard({
       )}
 
       {/* FLIGHT ACADEMY TUTORIAL DIALOG */}
-      {isTutorial && (
-        <div className="absolute top-16 inset-x-4 bg-slate-900/95 border border-cyan-500/50 backdrop-blur-md rounded-xl p-4 z-30 shadow-[0_0_20px_rgba(6,182,212,0.3)] flex flex-col gap-2.5 animate-pulse">
-          <div className="flex justify-between items-center border-b border-cyan-500/20 pb-1.5">
-            <div className="flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-cyan-400" />
-              <span className="text-cyan-400 text-xs font-black font-mono tracking-widest uppercase">FLIGHT ACADEMY</span>
+      {isTutorial && isTutorialCollapsed && (
+        <motion.div
+          drag
+          dragConstraints={containerRef}
+          dragMomentum={false}
+          dragElastic={0.1}
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="absolute top-18 right-4 left-4 md:left-auto md:right-4 md:w-[260px] bg-slate-950/90 border border-cyan-500/40 backdrop-blur-md rounded-lg py-1.5 px-3 z-30 shadow-[0_0_15px_rgba(6,182,212,0.2)] flex justify-between items-center cursor-grab active:cursor-grabbing select-none"
+        >
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+            </span>
+            <span className="text-[10px] text-cyan-400 font-mono font-bold uppercase tracking-wider">
+              ACADEMY PILOT PHASE {tutStep + 1}/5
+            </span>
+          </div>
+          <button 
+            onClick={() => setIsTutorialCollapsed(false)}
+            className="text-[9px] bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/60 transition px-2 py-0.5 rounded font-mono font-bold uppercase pointer-events-auto"
+          >
+            EXPAND GUIDE
+          </button>
+        </motion.div>
+      )}
+
+      {isTutorial && !isTutorialCollapsed && (
+        <motion.div 
+          drag
+          dragConstraints={containerRef}
+          dragMomentum={false}
+          dragElastic={0.1}
+          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ type: "spring", damping: 15 }}
+          className="absolute top-18 left-4 right-4 md:left-auto md:right-4 md:w-[380px] bg-slate-950/95 border-2 border-cyan-500/40 backdrop-blur-lg rounded-xl p-4 z-30 shadow-[0_0_25px_rgba(6,182,212,0.3)] flex flex-col gap-2.5 cursor-grab active:cursor-grabbing select-none hover:bg-slate-950/98 transition-colors duration-200"
+        >
+          {/* Draggable Handle Indicator */}
+          <div className="flex flex-col items-center justify-center gap-0.5 border-b border-cyan-500/10 pb-1.5">
+            <div className="flex gap-1">
+              <span className="w-1 h-1 rounded-full bg-cyan-500/40 animate-pulse" />
+              <span className="w-1 h-1 rounded-full bg-cyan-500/40 animate-pulse delay-75" />
+              <span className="w-1 h-1 rounded-full bg-cyan-500/40 animate-pulse delay-150" />
             </div>
-            <span className="text-[10px] text-slate-400 font-mono font-bold uppercase">PHASE {tutStep + 1}/5</span>
+            <span className="text-[7px] text-cyan-500/40 font-mono tracking-widest uppercase select-none font-bold">
+              ⚡ DRAG TO REPOSITION GUIDE ⚡
+            </span>
           </div>
 
-          <div className="space-y-1">
-            <h4 className="text-[11px] font-black font-sans uppercase tracking-wider text-slate-100">
-              {tutStep === 0 && "PILOT FLIGHT MANEUVERS"}
-              {tutStep === 1 && "LIVE TARGET PRACTICE"}
-              {tutStep === 2 && "NEON SCRAP RECOVERY"}
-              {tutStep === 3 && "TACTICAL VEHICLE OVERLOAD"}
-              {tutStep === 4 && "CADET GRADUATION"}
-            </h4>
-            <p className="text-[10px] text-slate-300 font-mono leading-relaxed">
-              {tutStep === 0 && "Drag the vessel or use WASD/Arrows to maneuver across the sector. Learn the flight boundaries."}
-              {tutStep === 1 && "Blaster weapons fire automatically! Track and obliterate the 3 oncoming Target Orbs."}
-              {tutStep === 2 && "Splendid shooting! Recover the 3 dropped purple Amethyst Scraps to stock up."}
-              {tutStep === 3 && "Brilliant cadet! Pick up either the Green Shield Core or the Blue Double-Laser Upgrade."}
-              {tutStep === 4 && "Simulation successfully completed! Stand by for deployment to the outer galaxy core..."}
-            </p>
-          </div>
-
-          {/* Progress gauge */}
-          <div className="space-y-1">
-            <div className="flex justify-between items-center text-[9px] font-mono text-slate-400">
-              <span>ACADEMY STATUS</span>
-              <span>
-                {tutStep === 0 && "MANEUVER TO ENGAGE"}
-                {tutStep === 1 && `${Math.max(0, 3 - stateRef.current.enemies.length)}/3 ORBS DESTROYED`}
-                {tutStep === 2 && `${Math.min(3, tutProgress)}/3 SCRAPS COLLECTED`}
-                {tutStep === 3 && "ACQUIRE ACTIVE POWERUP"}
-                {tutStep === 4 && "FINALIZING LOGS..."}
+          {/* Decorative scanner lines and corner brackets */}
+          <div className="absolute top-2 left-2 w-2 h-2 border-t-2 border-l-2 border-cyan-400 animate-pulse" />
+          <div className="absolute top-2 right-2 w-2 h-2 border-t-2 border-r-2 border-cyan-400 animate-pulse" />
+          <div className="absolute bottom-2 left-2 w-2 h-2 border-b-2 border-l-2 border-cyan-400 animate-pulse" />
+          <div className="absolute bottom-2 right-2 w-2 h-2 border-b-2 border-r-2 border-cyan-400 animate-pulse" />
+          
+          <div className="flex justify-between items-center border-b border-cyan-500/20 pb-2">
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <span className="absolute inline-flex h-2 w-2 rounded-full bg-cyan-400 opacity-75 animate-ping" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500" />
+              </div>
+              <span className="text-cyan-400 text-xs font-black font-mono tracking-widest uppercase">
+                FLIGHT ACADEMY SIMULATION
               </span>
             </div>
-            <div className="h-2 w-full bg-slate-950 border border-slate-800 rounded-full overflow-hidden">
+            <div className="flex items-center gap-2">
+              <div className="px-2 py-0.5 bg-cyan-950/80 border border-cyan-500/30 rounded text-[9px] text-cyan-300 font-mono font-bold uppercase">
+                PHASE {tutStep + 1} / 5
+              </div>
+              <button 
+                onClick={() => setIsTutorialCollapsed(true)}
+                className="text-slate-400 hover:text-cyan-400 text-[10px] font-mono font-bold border border-slate-800 hover:border-cyan-500/30 bg-slate-900/40 px-1.5 py-0.5 rounded transition pointer-events-auto"
+              >
+                MINIMIZE
+              </button>
+            </div>
+          </div>
+
+          {/* Virtual Co-Pilot Avatar Box */}
+          <div className="flex gap-3 bg-slate-900/60 border border-slate-800/80 p-2.5 rounded-lg select-none">
+            {/* Holographic AI wave avatar */}
+            <div className="flex flex-col items-center justify-center bg-cyan-950/40 border border-cyan-500/30 rounded-lg p-2 h-11 w-11 shrink-0 relative overflow-hidden">
+              <div className="absolute inset-0 bg-[linear-gradient(rgba(18,18,18,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[size:100%_4px,6px_100%]" />
+              {/* Dynamic waveform bars */}
+              <div className="flex items-end gap-0.5 h-6">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <motion.div
+                    key={i}
+                    animate={{ height: ["20%", "90%", "30%", "100%", "20%"] }}
+                    transition={{
+                      duration: 0.8 + i * 0.15,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
+                    className="w-1 bg-cyan-400 rounded-sm shadow-[0_0_4px_rgba(34,211,238,0.5)]"
+                  />
+                ))}
+              </div>
+              <span className="text-[6px] text-cyan-300 font-mono font-bold tracking-tighter mt-1 uppercase">A.I. CO-PILOT</span>
+            </div>
+
+            {/* Instruction dialogue text */}
+            <div className="flex flex-col justify-center min-w-0">
+              <span className="text-[8px] font-mono text-cyan-400 font-extrabold uppercase tracking-wide">VALERIE (ACADEMY AI)</span>
+              <p className="text-[10px] text-slate-200 font-mono leading-relaxed mt-0.5 italic">
+                {tutStep === 0 && "Welcome Cadet. Calibrate thruster response. Move the vessel across the grid."}
+                {tutStep === 1 && "Direct hit! Active training targets ahead. Obliterate the 3 oncoming target orbs."}
+                {tutStep === 2 && "Exquisite shooting! Debris yielded amethyst energy cores. Salvage the 3 scraps to refuel."}
+                {tutStep === 3 && "Supply drones arrived! Grab either the Green Shield Core or Blue Double-Laser Upgrade."}
+                {tutStep === 4 && "Flawless training sequence! Hold tightly as we synchronize your hyperdrive vectors."}
+              </p>
+            </div>
+          </div>
+
+          {/* Active Flight Checklist */}
+          <div className="bg-slate-950/50 border border-slate-900 rounded-lg p-2.5 space-y-2 select-none">
+            <span className="text-[8px] font-mono text-slate-400 uppercase tracking-widest block font-bold">TACTICAL CHECKLIST</span>
+            <div className="space-y-1.5 font-mono text-[9px] text-slate-300">
+              {tutStep === 0 && (
+                <div className="space-y-1">
+                  {tutPhaseCleared ? (
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <span>✓</span>
+                      <span>Thrusters Calibrated! [100%]</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-cyan-300">
+                      <span className="animate-ping h-1 w-1 bg-cyan-400 rounded-full" />
+                      <span>[ ] MANEUVER: Ignite Thrusters (WASD / Arrows / Drag) ({Math.round(Math.min(100, (tutProgress / 1.2) * 100))}% Calibrated)</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {tutStep === 1 && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-slate-500 line-through">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Thrusters Calibrated</span>
+                  </div>
+                  {tutPhaseCleared ? (
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <span>✓</span>
+                      <span>LIVE TARGETS: All Target Orbs Obliterated!</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-cyan-300">
+                      <span className="animate-ping h-1 w-1 bg-cyan-400 rounded-full animate-pulse" />
+                      <span>[ ] LIVE TARGETS: Obliterate Orbs ({Math.max(0, 3 - (stateRef.current?.enemies?.length || 0))}/3 Destroyed)</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {tutStep === 2 && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-slate-500 line-through">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Orbs Cleared</span>
+                  </div>
+                  {tutPhaseCleared ? (
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <span>✓</span>
+                      <span>HARVEST RESOURCE: Amethyst Refueling Complete!</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-cyan-300">
+                      <span className="animate-ping h-1 w-1 bg-cyan-400 rounded-full animate-pulse" />
+                      <span>[ ] HARVEST RESOURCE: Collect Amethyst Scraps ({Math.min(3, Math.round(tutProgress))}/3 Salvaged)</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {tutStep === 3 && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-slate-500 line-through">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Amethyst Harvested</span>
+                  </div>
+                  {tutPhaseCleared ? (
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <span>✓</span>
+                      <span>POWER UPGRADE: Core Subsystems Overloaded!</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-cyan-300">
+                      <span className="animate-ping h-1 w-1 bg-cyan-400 rounded-full animate-pulse" />
+                      <span>[ ] POWER UPGRADE: Grab Shield Core or Double Laser</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {tutStep === 4 && (
+                <div className="space-y-1">
+                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                    <span>✓</span>
+                    <span>Systems Overloaded & Ready</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-yellow-400 animate-pulse">
+                    <span>⚡</span>
+                    <span>WARP SEQUENCE: Click "COMPLETE GRADUATION" below...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* MANUAL PROGRESSION BUTTON - GLOWING CYAN */}
+          {tutPhaseCleared ? (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={advanceTutorialStep}
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 text-xs font-black font-mono rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.5)] border border-cyan-300 tracking-wider uppercase flex items-center justify-center gap-2 animate-[pulse_1.5s_infinite] pointer-events-auto"
+            >
+              <span>
+                {tutStep === 0 && "PROCEED TO LIVE TARGET PRACTICE →"}
+                {tutStep === 1 && "PROCEED TO NEON SCRAP HARVESTING →"}
+                {tutStep === 2 && "PROCEED TO TACTICAL UPGRADES →"}
+                {tutStep === 3 && "PROCEED TO GRADUATION PHASE →"}
+                {tutStep === 4 && "COMPLETE GRADUATION & DEPLOY TO ACTIVE UNIVERSE ⚡"}
+              </span>
+            </motion.button>
+          ) : (
+            <div className="w-full py-2 px-3 bg-slate-900/80 border border-slate-800 rounded-lg flex items-center justify-center text-[10px] font-mono text-cyan-400/70 uppercase select-none">
+              <span>
+                {tutStep === 0 && "MANEUVER SHIP TO TRIGGER SYSTEM SYNC..."}
+                {tutStep === 1 && "DESTROY ALL 3 TARGET ORBS TO CLEAR PHASE..."}
+                {tutStep === 2 && "COLLECT ALL 3 AMETHYST SCRAPS TO REFUEL..."}
+                {tutStep === 3 && "ACQUIRE EITHER POWER-UP IN THE SECTOR..."}
+                {tutStep === 4 && "GRADUATION READY"}
+              </span>
+            </div>
+          )}
+
+          {/* Progress Gauge */}
+          <div className="space-y-1 mt-0.5 select-none">
+            <div className="flex justify-between items-center text-[8px] font-mono font-black text-slate-400 tracking-wider">
+              <span>SIMULATION SYNC STATUS</span>
+              <span className="text-cyan-400 uppercase">
+                {tutStep === 0 && "IGNITION TRIGGER PENDING"}
+                {tutStep === 1 && "TARGET LOCK ACTIVE"}
+                {tutStep === 2 && "GRAVITY RECOVERY MATRIX ACTIVE"}
+                {tutStep === 3 && "TACTICAL CORE INBOUND"}
+                {tutStep === 4 && "HYPERDRIVE VECTORS LOCKED"}
+              </span>
+            </div>
+            <div className="h-1.5 w-full bg-slate-950 border border-slate-800/80 rounded-full overflow-hidden p-0.5">
               <div 
-                className="h-full bg-gradient-to-r from-cyan-500 to-teal-400 transition-all duration-300 rounded-full"
+                className="h-full bg-gradient-to-r from-cyan-500 via-cyan-400 to-teal-400 transition-all duration-300 rounded-full shadow-[0_0_6px_rgba(6,182,212,0.8)]"
                 style={{ 
-                  width: tutStep === 0 ? "20%" : tutStep === 1 ? `${Math.round((Math.max(0, 3 - stateRef.current.enemies.length) / 3) * 100)}%` : tutStep === 2 ? `${Math.min(100, Math.round((tutProgress / 3) * 100))}%` : tutStep === 3 ? "80%" : "100%" 
+                  width: tutStep === 0 ? "20%" : tutStep === 1 ? `${Math.round((Math.max(0, 3 - (stateRef.current?.enemies?.length || 0)) / 3) * 100)}%` : tutStep === 2 ? `${Math.min(100, Math.round((tutProgress / 3) * 100))}%` : tutStep === 3 ? "80%" : "100%" 
                 }}
               />
             </div>
           </div>
-        </div>
+        </motion.div>
       )}
 
       {/* 1. TOP GAME STATUS BAR HUD */}
@@ -3042,18 +3770,28 @@ export default function GameBoard({
 
       {/* 2. BOSS INCOMING BANNER ALERT */}
       {bossActive && (
-        <div className="absolute top-16 inset-x-4 bg-red-950/80 border border-red-500/50 backdrop-blur-md rounded-lg p-2.5 z-20 animate-pulse">
+        <div className={`absolute top-16 inset-x-4 backdrop-blur-md rounded-lg p-2.5 z-20 transition-all duration-300 ${
+          bossImmune 
+            ? 'bg-amber-950/85 border border-amber-500 shadow-lg shadow-amber-500/10' 
+            : 'bg-red-950/80 border border-red-500/50 animate-pulse'
+        }`}>
           <div className="flex justify-between items-center mb-1">
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-              <span className="text-red-400 text-xs font-bold font-mono tracking-wider uppercase">WARNING: {bossName}</span>
+              <span className={`w-2 h-2 rounded-full animate-ping ${bossImmune ? 'bg-amber-400' : 'bg-red-500'}`} />
+              <span className={`text-xs font-bold font-mono tracking-wider uppercase ${bossImmune ? 'text-amber-400' : 'text-red-400'}`}>
+                {bossImmune ? 'SHIELDING: OVERLOAD PROTOCOL' : `WARNING: ${bossName}`}
+              </span>
             </div>
-            <span className="text-red-400 font-mono text-xs font-bold">{bossHealthPercent}%</span>
+            <span className={`font-mono text-xs font-black tracking-wide uppercase px-1.5 py-0.5 rounded ${
+              bossImmune ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-red-400'
+            }`}>
+              {bossImmune ? 'IMMUNE' : `${bossHealthPercent}%`}
+            </span>
           </div>
-          <div className="h-1.5 w-full bg-red-950 border border-red-900 rounded-full overflow-hidden">
+          <div className="h-1.5 w-full bg-slate-950 border border-slate-800 rounded-full overflow-hidden">
             <div 
-              className="h-full bg-red-500 transition-all duration-75"
-              style={{ width: `${bossHealthPercent}%` }}
+              className={`h-full transition-all duration-150 ${bossImmune ? 'bg-gradient-to-r from-amber-500 to-yellow-300 animate-pulse' : 'bg-red-500'}`}
+              style={{ width: `${bossImmune ? 100 : bossHealthPercent}%` }}
             />
           </div>
         </div>
@@ -3134,6 +3872,162 @@ export default function GameBoard({
             ← Drag or ARROWS/WASD to steer →
           </p>
           <span className="text-[9px] text-slate-500 font-mono mt-1">Weapons fire automatically!</span>
+        </div>
+      )}
+
+      {/* ROGUELITE PICK-A-BUFF OVERLAY */}
+      {showingBuffChoice && (
+        <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col justify-center items-center z-50 p-6 select-none">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-sm flex flex-col items-center text-center"
+          >
+            {/* Crown icon / Alert header */}
+            <div className="w-12 h-12 rounded-full border border-cyan-500/40 bg-cyan-500/10 flex items-center justify-center text-cyan-400 mb-4 animate-bounce">
+              <Award className="w-6 h-6 animate-pulse" />
+            </div>
+
+            <h2 className="text-xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-400 to-indigo-400 uppercase">
+              Sector Cleared
+            </h2>
+            <p className="text-[10px] font-mono font-bold uppercase text-cyan-500 tracking-wider mb-6">
+              Vessel Refit: Select Refit Module
+            </p>
+
+            <div className="w-full flex flex-col gap-3.5">
+              {buffOptions.map((buff) => {
+                // Pick icon
+                const IconComponent = buff.icon === 'zap' ? Zap
+                  : buff.icon === 'shield' ? Shield
+                  : buff.icon === 'heart' ? Heart
+                  : buff.icon === 'magnet' ? Sparkles
+                  : buff.icon === 'target' ? Target
+                  : buff.icon === 'sparkles' ? Sparkles
+                  : buff.icon === 'activity' ? AlertTriangle
+                  : Award;
+
+                return (
+                  <button
+                    key={buff.id}
+                    onClick={() => applySelectedBuff(buff.id)}
+                    className="w-full text-left p-3.5 rounded-xl border border-slate-800/80 bg-slate-900/30 hover:bg-cyan-950/20 hover:border-cyan-500/50 transition-all duration-200 shadow-md group flex items-start gap-3"
+                  >
+                    <div className="p-2.5 rounded-lg border border-slate-800 bg-slate-950 text-slate-400 group-hover:text-cyan-400 group-hover:border-cyan-500/30 shrink-0 transition-colors">
+                      <IconComponent className="w-4 h-4" />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-black font-mono tracking-tight text-slate-200 group-hover:text-cyan-300 transition-colors">
+                        {buff.name}
+                      </span>
+                      <span className="text-[9px] font-mono text-slate-400 leading-tight mt-1 group-hover:text-slate-300 transition-colors">
+                        {buff.description}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-6 text-[8px] font-mono text-slate-500 uppercase tracking-widest animate-pulse">
+              Enhancements apply for the entire run duration
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* SELECT STARTER PHILOSOPHY OVERLAY (INSIDE GAME AFTER DEPLOY SHIP) */}
+      {localStarterLoadout === null && (
+        <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col justify-center items-center z-50 p-6 select-none">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-sm flex flex-col items-center text-center"
+          >
+            {/* Immersive pulsing header shield */}
+            <div className="w-12 h-12 rounded-full border border-cyan-500/40 bg-cyan-500/10 flex items-center justify-center text-cyan-400 mb-4 animate-pulse">
+              <Shield className="w-6 h-6" />
+            </div>
+
+            <h2 className="text-xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-white to-slate-400 uppercase italic">
+              Vessel Configuration
+            </h2>
+            <p className="text-[10px] font-mono font-bold uppercase text-cyan-500 tracking-wider mb-6">
+              SELECT STARTER PHILOSOPHY
+            </p>
+
+            <div className="w-full flex flex-col gap-3">
+              {[
+                {
+                  id: 'balanced',
+                  name: 'Balanced Loadout',
+                  desc: 'Standard hull plating (100 capacity shield) and standard balanced weapons cycle.',
+                  icon: Shield,
+                  activeClass: 'border-cyan-500 shadow-[0_0_15px_rgba(6,182,212,0.25)] bg-cyan-500/10'
+                },
+                {
+                  id: 'glass',
+                  name: 'Glass Cannon',
+                  desc: 'Fragile shield capacity (40 capacity shield), but gain +50% laser output yield and +10% speed!',
+                  icon: Zap,
+                  activeClass: 'border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.25)] bg-rose-500/10'
+                },
+                {
+                  id: 'tank',
+                  name: 'Heavy Plate Tank',
+                  desc: 'Immense plating (+80 capacity shield), but weapons cycle 30% slower and thruster responsiveness is reduced by 20%.',
+                  icon: Battery,
+                  activeClass: 'border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.25)] bg-amber-500/10'
+                }
+              ].map((opt) => {
+                const isSelected = selectedTempLoadout === opt.id;
+                const Icon = opt.icon;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => {
+                      setSelectedTempLoadout(opt.id as any);
+                      SynthAudio.playCollect();
+                    }}
+                    className={`w-full text-left p-3 rounded-xl border transition-all duration-200 shadow-md flex items-start gap-3 cursor-pointer ${
+                      isSelected 
+                        ? opt.activeClass 
+                        : 'border-slate-800/80 bg-slate-900/40 hover:bg-slate-900/80 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className={`p-2 rounded-lg border shrink-0 transition-colors ${
+                      isSelected ? 'bg-slate-950 border-cyan-500/30 text-cyan-400' : 'bg-slate-950 border-slate-800 text-slate-500'
+                    }`}>
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className={`text-[11px] font-black font-mono tracking-tight transition-colors ${
+                        isSelected ? 'text-white font-black' : 'text-slate-300'
+                      }`}>
+                        {opt.name.toUpperCase()}
+                      </span>
+                      <span className="text-[9px] font-mono text-slate-400 leading-snug mt-0.5">
+                        {opt.desc}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => {
+                setLocalStarterLoadout(selectedTempLoadout);
+                if (onSelectStarterLoadout) {
+                  onSelectStarterLoadout(selectedTempLoadout);
+                }
+                SynthAudio.playPowerup();
+              }}
+              className="w-full mt-6 py-3 bg-cyan-500 text-slate-950 font-black rounded-lg shadow-[0_0_30px_rgba(34,211,238,0.3)] hover:shadow-[0_0_50px_rgba(34,211,238,0.5)] hover:bg-cyan-400 uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 transition duration-300 transform active:scale-[0.98] cursor-pointer"
+            >
+              <span>ENGAGE & LAUNCH VESSEL</span>
+            </button>
+          </motion.div>
         </div>
       )}
 

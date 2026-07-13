@@ -22,38 +22,6 @@ const WEAPONS_CONFIG = [
     description: 'Searing focused plasma bolts with high projectile speed and rapid precision firing.',
     upgradeKey: 'weaponPlasmaLevel' as const,
   },
-  {
-    id: 'ion',
-    name: 'Ion Pulse',
-    color: '#10b981',
-    icon: Crosshair,
-    description: 'Heavy hyper-dense ionic spheres with wider blast radius, dealing extra base damage.',
-    upgradeKey: 'weaponIonLevel' as const,
-  },
-  {
-    id: 'wave',
-    name: 'Wave Beam',
-    color: '#a855f7',
-    icon: Sparkles,
-    description: 'Oscillating wide frequency fields that snake forward, sweeping wide sectors of enemies.',
-    upgradeKey: 'weaponWaveLevel' as const,
-  },
-  {
-    id: 'neutron',
-    name: 'Neutron Flare',
-    color: '#f59e0b',
-    icon: Flame,
-    description: 'Heavy thermonuclear rounds that split on impact, creating burning sparks for area damage.',
-    upgradeKey: 'weaponNeutronLevel' as const,
-  },
-  {
-    id: 'tesla',
-    name: 'Tesla Volt',
-    color: '#ec4899',
-    icon: Zap,
-    description: 'High-frequency chain lightning discharge that splits and arcs to multiple targets.',
-    upgradeKey: 'weaponTeslaLevel' as const,
-  },
 ];
 
 export default function UpgradesStore({
@@ -180,40 +148,42 @@ export default function UpgradesStore({
               </div>
 
               {/* Weapon Selector Grid */}
-              <div className="grid grid-cols-3 gap-2">
-                {WEAPONS_CONFIG.map((wpn) => {
-                  const isSelected = (upgrades.selectedWeapon || 'plasma') === wpn.id;
-                  const currentLevel = upgrades[wpn.upgradeKey] as number || 1;
-                  const IconComponent = wpn.icon;
+              {WEAPONS_CONFIG.length > 1 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {WEAPONS_CONFIG.map((wpn) => {
+                    const isSelected = (upgrades.selectedWeapon || 'plasma') === wpn.id;
+                    const currentLevel = upgrades[wpn.upgradeKey] as number || 1;
+                    const IconComponent = wpn.icon;
 
-                  return (
-                    <button
-                      key={wpn.id}
-                      id={`select-weapon-${wpn.id}`}
-                      onClick={() => {
-                        onSelectWeapon(wpn.id);
-                        SynthAudio.playCollect();
-                      }}
-                      className={`flex flex-col items-center justify-between p-2.5 rounded-lg border text-center transition-all ${
-                        isSelected
-                          ? 'bg-slate-800/85 border-cyan-400 shadow-md shadow-cyan-400/10'
-                          : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700'
-                      }`}
-                    >
-                      <IconComponent 
-                        className="w-4 h-4 mb-1" 
-                        style={{ color: isSelected ? wpn.color : '#64748b' }}
-                      />
-                      <span className={`text-[10px] font-bold tracking-tight ${isSelected ? 'text-cyan-400' : 'text-slate-400'}`}>
-                        {wpn.name}
-                      </span>
-                      <span className="text-[9px] font-mono mt-1 text-slate-500 font-bold uppercase">
-                        LV.{currentLevel}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+                    return (
+                      <button
+                        key={wpn.id}
+                        id={`select-weapon-${wpn.id}`}
+                        onClick={() => {
+                          onSelectWeapon(wpn.id);
+                          SynthAudio.playCollect();
+                        }}
+                        className={`flex flex-col items-center justify-between p-2.5 rounded-lg border text-center transition-all ${
+                          isSelected
+                            ? 'bg-slate-800/85 border-cyan-400 shadow-md shadow-cyan-400/10'
+                            : 'bg-slate-950/40 border-slate-800/80 hover:border-slate-700'
+                        }`}
+                      >
+                        <IconComponent 
+                          className="w-4 h-4 mb-1" 
+                          style={{ color: isSelected ? wpn.color : '#64748b' }}
+                        />
+                        <span className={`text-[10px] font-bold tracking-tight ${isSelected ? 'text-cyan-400' : 'text-slate-400'}`}>
+                          {wpn.name}
+                        </span>
+                        <span className="text-[9px] font-mono mt-1 text-slate-500 font-bold uppercase">
+                          LV.{currentLevel}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Selected Weapon Detail & Upgrade Control */}
               {(() => {

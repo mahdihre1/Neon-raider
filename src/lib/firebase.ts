@@ -65,16 +65,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       });
     });
 
-    // Client-side de-duplication: keep only the first (highest) score for each unique username
-    const uniqueMap = new Map<string, LeaderboardEntry>();
-    for (const entry of results) {
-      const normalizedUser = entry.username.trim().toLowerCase();
-      if (!uniqueMap.has(normalizedUser)) {
-        uniqueMap.set(normalizedUser, entry);
-      }
-    }
-
-    return Array.from(uniqueMap.values());
+    return results;
   } catch (error) {
     console.error("Error loading leaderboard:", error);
     handleFirestoreError(error, OperationType.GET, path);
