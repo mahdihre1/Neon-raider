@@ -12,6 +12,7 @@ import UpgradesStore from './components/UpgradesStore';
 import StatsPanel from './components/StatsPanel';
 import LeaderboardPanel from './components/LeaderboardPanel';
 import UsernameModal from './components/UsernameModal';
+import { AdPlayerOverlay } from './components/AdPlayerOverlay';
 import { submitHighScore } from './lib/firebase';
 import { 
   Shield, 
@@ -33,7 +34,8 @@ import {
   Loader,
   Battery,
   Heart,
-  RefreshCw
+  RefreshCw,
+  Tv
 } from 'lucide-react';
 
 const LOCAL_STORAGE_UPGRADES_KEY = 'neon_raider_upgrades_v1';
@@ -111,6 +113,10 @@ export default function App() {
     isNewHighScore: false,
     unlockedMedalsThisRun: [] as string[]
   });
+
+  // Rewarded Video Ad double scraps states
+  const [scrapsDoubled, setScrapsDoubled] = useState(false);
+  const [playingDoubleAd, setPlayingDoubleAd] = useState(false);
 
   // Load from local storage on mount
   useEffect(() => {
@@ -234,6 +240,7 @@ export default function App() {
   // Run Game over handler
   const handleGameOver = (finalScore: number, scrapSalvaged: number, enemiesKilled: number, dCause?: string, sUpgrade?: string) => {
     SynthAudio.stopMusic();
+    setScrapsDoubled(false);
 
     setDeathCause(dCause || "Vessel hull integrity compromised due to excessive energy drain.");
     setSuggestedUpgrade(sUpgrade || "Nano-Shield Capacity (increases max shield and survival window).");
@@ -289,6 +296,26 @@ export default function App() {
         setIsSubmittingScore(false);
       });
     }
+  };
+
+  const handleDoubleScrapsSuccess = () => {
+    const extraScrap = currentRun.scrap;
+    setCurrentRun(prev => ({
+      ...prev,
+      scrap: prev.scrap * 2
+    }));
+
+    const updatedStats = {
+      ...stats,
+      totalScrap: stats.totalScrap + extraScrap,
+      accumulatedScrap: stats.accumulatedScrap + extraScrap
+    };
+
+    setStats(updatedStats);
+    saveToStorage(upgrades, updatedStats);
+
+    setScrapsDoubled(true);
+    setPlayingDoubleAd(false);
   };
 
   // Purchase standard level upgrades
@@ -847,6 +874,37 @@ export default function App() {
                     </div>
                   </div>
 
+                  {/* DOUBLE SCRAP AD BUTTON */}
+                  {currentRun.scrap > 0 && (
+                    <div className="pt-1">
+                      <button
+                        id="double-scrap-ad-btn"
+                        disabled={scrapsDoubled}
+                        onClick={() => {
+                          SynthAudio.playCollect();
+                          setPlayingDoubleAd(true);
+                        }}
+                        className={`w-full py-2.5 px-4 rounded-xl border font-mono uppercase text-[9px] tracking-wider transition flex items-center justify-center gap-2 font-bold cursor-pointer select-none active:scale-[0.98] ${
+                          scrapsDoubled
+                            ? 'bg-emerald-950/25 border-emerald-500/30 text-emerald-400 cursor-not-allowed'
+                            : 'bg-gradient-to-r from-amber-500/10 to-yellow-500/10 hover:from-amber-500/20 hover:to-yellow-500/20 border-amber-500/30 hover:border-amber-500/80 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.05)] hover:shadow-[0_0_20px_rgba(245,158,11,0.15)] animate-pulse'
+                        }`}
+                      >
+                        {scrapsDoubled ? (
+                          <>
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>✓ SCRAPS DOUBLE CREDITED!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Tv className="w-3.5 h-3.5 text-amber-400 animate-bounce" />
+                            <span>📺 Watch Ad to Double Scrap (+{currentRun.scrap})!</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
                   {/* Death Analysis Review Panel */}
                   {deathCause && (
                     <div className="bg-red-950/40 border border-red-500/30 rounded-xl p-3.5 space-y-2">
@@ -1002,6 +1060,16 @@ export default function App() {
                 </div>
               </div>
             </div>
+          )}
+
+          {playingDoubleAd && (
+            <AdPlayerOverlay
+              adName="double_scraps"
+              onReward={handleDoubleScrapsSuccess}
+              onCancel={() => {
+                setPlayingDoubleAd(false);
+              }}
+            />
           )}
         </div>
       </div>
