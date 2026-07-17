@@ -2,7 +2,8 @@ import React, { useRef, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Upgrades, SHIP_SKINS } from '../types';
 import { SynthAudio } from '../utils/audio';
-import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery } from 'lucide-react';
+import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery, Tv, ShieldAlert } from 'lucide-react';
+import { AdPlayerOverlay } from './AdPlayerOverlay';
 
 interface GameBoardProps {
   upgrades: Upgrades;
@@ -273,6 +274,11 @@ export default function GameBoard({
   // Roguelite Pick-a-Buff choices overlay
   const [showingBuffChoice, setShowingBuffChoice] = useState(false);
   const [buffOptions, setBuffOptions] = useState<any[]>([]);
+
+  // Rewarded Video Ad Revive states
+  const [showingRevivePrompt, setShowingRevivePrompt] = useState(false);
+  const [playingReviveAd, setPlayingReviveAd] = useState(false);
+  const [hasRevived, setHasRevived] = useState(false);
 
   // references for mutable game loop state to avoid React re-renders breaking 60 FPS
   const stateRef = useRef({
@@ -719,7 +725,7 @@ export default function GameBoard({
     const gameLoop = (timestamp: number) => {
       if (!isMounted) return;
 
-      if (paused || !stateRef.current.starterLoadout || stateRef.current.showingBuffChoice) {
+      if (paused || !stateRef.current.starterLoadout || stateRef.current.showingBuffChoice || showingRevivePrompt) {
         // Draw pause screen overlay slightly, keeping frame rate ticking for starry background
         stateRef.current.lastTime = timestamp;
         ctx.fillStyle = 'rgba(10, 10, 18, 0.4)';
@@ -3209,9 +3215,15 @@ export default function GameBoard({
 
       // 8. GAME OVER TRIGGER
       if (state.shield <= 0) {
-        SynthAudio.playGameOver();
-        onGameOver(Math.round(state.score), state.scrap, state.enemiesKilled);
-        return;
+        if (!state.hasRevivedThisRun && !isTutorial) {
+          state.hasRevivedThisRun = true; // Mark as spent so they don't get double prompted
+          setShowingRevivePrompt(true);
+          return;
+        } else {
+          SynthAudio.playGameOver();
+          onGameOver(Math.round(state.score), state.scrap, state.enemiesKilled);
+          return;
+        }
       }
 
       animId = requestAnimationFrame(gameLoop);
@@ -3226,7 +3238,7 @@ export default function GameBoard({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [paused, upgrades, bossActive, musicOn]);
+  }, [paused, upgrades, bossActive, musicOn, showingRevivePrompt]);
 
   // Touch and Mouse Move Drag controls - delta movement to avoid finger blocking the ship
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -3301,6 +3313,43 @@ export default function GameBoard({
 
   const handleMouseUp = () => {
     stateRef.current.touch.isDragging = false;
+  };
+
+  const handleReviveSuccess = () => {
+    const state = stateRef.current;
+    state.hasRevivedThisRun = true;
+    state.shield = state.maxShield;
+    setShield(state.maxShield); // Synchronize shield to UI state
+    
+    // EMP BLAST: blow up standard enemies on screen with amazing cyan explosions
+    state.enemies.forEach(enemy => {
+      for (let i = 0; i < 15; i++) {
+        state.particles.push({
+          x: enemy.x + enemy.width / 2,
+          y: enemy.y + enemy.height / 2,
+          vx: (Math.random() - 0.5) * 350,
+          vy: (Math.random() - 0.5) * 350,
+          color: '#22d3ee', // Cyan particles
+          size: Math.random() * 4 + 2,
+          alpha: 1,
+          decay: Math.random() * 0.05 + 0.02
+        });
+      }
+    });
+    // Keep bosses but clear standard enemies
+    state.enemies = state.enemies.filter(e => e.type === 'boss');
+    state.projectiles = []; // Clear hostile bullets! This is crucial so they don't spawn-die!
+    
+    // Give player brief invincibility (e.g. 3.5 seconds)
+    state.player.powerups.invincibility = 3.5;
+    
+    // Reset React state
+    setShowingRevivePrompt(false);
+    setPlayingReviveAd(false);
+    setHasRevived(true);
+    
+    // Resume game loop!
+    state.lastTime = performance.now();
   };
 
   // Convert shield value to visual health fraction
@@ -4029,6 +4078,72 @@ export default function GameBoard({
             </button>
           </motion.div>
         </div>
+      )}
+
+      {/* EMERGENCY REVIVE AD PROMPT */}
+      {showingRevivePrompt && !playingReviveAd && (
+        <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col justify-center items-center z-50 p-6 select-none">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-sm bg-slate-900 border border-red-500/30 rounded-2xl p-5 text-center space-y-5 shadow-2xl relative"
+          >
+            {/* Pulsing red alarm marker */}
+            <div className="mx-auto w-12 h-12 rounded-full border border-red-500/50 bg-red-500/10 flex items-center justify-center text-red-400 animate-pulse">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono uppercase text-red-500 font-bold tracking-widest animate-pulse block">
+                ⚠️ SHIELD ENERGY DEPLETED
+              </span>
+              <h3 className="text-lg font-black uppercase text-transparent bg-clip-text bg-gradient-to-r from-white to-red-400 italic tracking-widest font-sans">
+                EMERGENCY REVIVE
+              </h3>
+            </div>
+
+            <p className="text-[10px] text-slate-350 leading-relaxed font-mono px-2">
+              Vessel core integrity critical. Watch a short sponsor broadcast to completely restore ship shield and blast away current threats!
+            </p>
+
+            <div className="space-y-2.5 pt-2">
+              <button
+                id="revive-watch-ad-btn"
+                onClick={() => {
+                  SynthAudio.playCollect();
+                  setPlayingReviveAd(true);
+                }}
+                className="w-full py-3 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black rounded-sm skew-x-[-10deg] shadow-[0_0_20px_rgba(245,158,11,0.4)] hover:shadow-[0_0_35px_rgba(245,158,11,0.6)] tracking-widest transition text-xs cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Tv className="w-4 h-4 fill-current text-slate-950 skew-x-[10deg]" />
+                <span className="inline-block skew-x-[10deg] uppercase font-black text-[10px]">WATCH AD TO REVIVE</span>
+              </button>
+              
+              <button
+                id="revive-decline-btn"
+                onClick={() => {
+                  SynthAudio.playGameOver();
+                  setShowingRevivePrompt(false);
+                  onGameOver(Math.round(stateRef.current.score), stateRef.current.scrap, stateRef.current.enemiesKilled);
+                }}
+                className="w-full py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-500 hover:text-slate-300 rounded-sm skew-x-[-10deg] font-bold tracking-widest transition text-[9px] uppercase cursor-pointer"
+              >
+                <span className="inline-block skew-x-[10deg]">DECLINE & ABORT SORTIE</span>
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* REWARDED AD PLAYING OVERLAY */}
+      {playingReviveAd && (
+        <AdPlayerOverlay
+          adName="revive_ad"
+          onReward={handleReviveSuccess}
+          onCancel={() => {
+            setPlayingReviveAd(false);
+          }}
+        />
       )}
 
     </div>
