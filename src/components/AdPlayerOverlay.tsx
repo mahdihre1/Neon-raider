@@ -50,6 +50,13 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
   const [adIndex] = useState(() => Math.floor(Math.random() * MOCK_ADS.length));
   const [isRealAdActive, setIsRealAdActive] = useState(false);
   const [statusText, setStatusText] = useState("ESTABLISHING HIGH-BANDWIDTH SYNC...");
+  
+  // Real-time diagnostics
+  const [hasAdScript, setHasAdScript] = useState(false);
+  const [isAdBreakDefined, setIsAdBreakDefined] = useState(false);
+  const [lastBreakStatus, setLastBreakStatus] = useState<string>("none");
+  const [diagnosticReason, setDiagnosticReason] = useState<string>("Checking Google AdSense setup...");
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   useEffect(() => {
     // 1. ATTEMPT REAL GOOGLE ADSENSE H5 GAMES adBreak
@@ -95,6 +102,10 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
     };
 
     const checkAndRun = () => {
+      const adScriptEl = document.querySelector('script[src*="adsbygoogle"]');
+      setHasAdScript(!!adScriptEl);
+      setIsAdBreakDefined(!!win.adBreak);
+
       if (win.adBreak) {
         try {
           setStatusText("REQUESTING AD BREAK...");
@@ -104,6 +115,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
             beforeAd: () => {
               setIsRealAdActive(true);
               setStatusText("PLAYING REAL AD...");
+              setDiagnosticReason("Real Google AdSense H5 ad active and playing.");
             },
             afterAd: () => {
               setIsRealAdActive(false);
@@ -119,18 +131,34 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
             },
             adBreakDone: (placementInfo: any) => {
               console.log("AdSense H5 Ad Placement Completed:", placementInfo);
-              // If ad breaks are not ready or blocked, immediately fallback to simulated video
-              if (placementInfo && (placementInfo.breakStatus === 'notReady' || placementInfo.breakStatus === 'error' || placementInfo.breakStatus === 'timeout')) {
+              const status = placementInfo?.breakStatus || "unknown";
+              setLastBreakStatus(status);
+              
+              if (status === 'notReady') {
+                setDiagnosticReason("AdSense API returned 'notReady'. Inside development sandboxes and preview iframes, live Google ad fills are blocked/omitted. Transitioning gracefully to our offline sponsor backup.");
                 startFallback();
+              } else if (status === 'error') {
+                setDiagnosticReason("AdSense API returned 'error' during ad break request. Transitioning gracefully to our offline sponsor backup.");
+                startFallback();
+              } else if (status === 'timeout') {
+                setDiagnosticReason("AdSense API request timed out. Transitioning gracefully to our offline sponsor backup.");
+                startFallback();
+              } else if (status === 'ignored') {
+                setDiagnosticReason("AdSense API returned 'ignored' (possibly due to frequency caps). Transitioning gracefully to our offline sponsor backup.");
+                startFallback();
+              } else {
+                setDiagnosticReason(`Completed with AdSense status: ${status}`);
               }
             }
           });
         } catch (err) {
           console.warn("Google H5 ads broke, launching fallback:", err);
+          setDiagnosticReason("AdSense adBreak function call threw an exception. Transitioning gracefully to our offline sponsor backup.");
           startFallback();
         }
       } else {
-        // No AdSense object loaded (e.g. localhost, preview iframe, ad-blocker) -> launch immersive simulation
+        // No AdSense object loaded
+        setDiagnosticReason("window.adBreak is undefined. The Google Ads script could not load or was blocked by an AdBlocker. Transitioning gracefully to our offline sponsor backup.");
         startFallback();
       }
     };
@@ -169,12 +197,12 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-slate-950/98 z-[99999] flex flex-col items-center justify-center p-6 text-slate-100 overflow-hidden font-mono select-none"
+          className="fixed inset-0 bg-slate-950/98 z-[99999] flex flex-col items-center justify-center p-6 text-slate-100 overflow-y-auto font-mono select-none"
         >
           {/* Holographic background noise */}
           <div className="absolute inset-0 bg-[linear-gradient(rgba(18,18,18,0)_50%,rgba(0,0,0,0.3)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[size:100%_4px,6px_100%] pointer-events-none" />
           
-          <div className="w-full max-w-md bg-slate-900 border-2 border-amber-500/30 rounded-2xl p-5 relative flex flex-col gap-5 shadow-[0_0_50px_rgba(245,158,11,0.15)]">
+          <div className="w-full max-w-md bg-slate-900 border-2 border-amber-500/30 rounded-2xl p-5 relative flex flex-col gap-5 shadow-[0_0_50px_rgba(245,158,11,0.15)] my-auto">
             
             {/* Blinking corner decals */}
             <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-amber-400 animate-pulse" />
@@ -250,6 +278,55 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCa
                 <span className="text-xs text-slate-400 tracking-wider">PLAYING CLIENT BROADSHEET AD...</span>
               </div>
             )}
+
+            {/* Google AdSense Diagnostics Toggle Block */}
+            <div className="border-t border-slate-800/80 pt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                className="w-full text-[10px] bg-slate-950/80 hover:bg-slate-950 border border-slate-800 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 transition-all rounded px-2.5 py-1.5 flex justify-between items-center"
+              >
+                <span className="flex items-center gap-1.5">
+                  <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
+                  <span>GOOGLE ADSENSE H5 GAMES DIAGNOSTICS</span>
+                </span>
+                <span className="text-[8px] font-bold text-slate-500">
+                  {showDiagnostics ? "HIDE ▲" : "SHOW ▼"}
+                </span>
+              </button>
+
+              <AnimatePresence>
+                {showDiagnostics && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="overflow-hidden bg-slate-950 border border-slate-800/60 rounded p-3 text-[9px] flex flex-col gap-2 text-slate-300"
+                  >
+                    <div className="flex justify-between items-center border-b border-slate-850 pb-1.5">
+                      <span className="text-slate-500">Script Tag (adsbygoogle):</span>
+                      <span className={hasAdScript ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                        {hasAdScript ? "Detected (ca-pub-5288827544368702)" : "Missing / Blocked"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-slate-850 pb-1.5">
+                      <span className="text-slate-500">window.adBreak API:</span>
+                      <span className={isAdBreakDefined ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                        {isAdBreakDefined ? "Active & Hooked" : "Not Ready / Queueing"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center border-b border-slate-850 pb-1.5">
+                      <span className="text-slate-500">Last Placement Status:</span>
+                      <span className="text-amber-400 font-mono font-bold uppercase">{lastBreakStatus}</span>
+                    </div>
+                    <div className="text-[8px] leading-relaxed text-slate-400 bg-slate-900/40 border border-slate-850/60 rounded p-2 mt-1">
+                      <span className="text-amber-500 font-bold">INFO: </span>
+                      {diagnosticReason}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
 
             {/* Footer / Info / Skip Trigger */}
             <div className="flex justify-between items-center text-[8px] text-slate-500 border-t border-slate-850 pt-3">
