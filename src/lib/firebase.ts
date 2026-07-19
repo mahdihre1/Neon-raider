@@ -91,3 +91,30 @@ export async function submitHighScore(username: string, score: number): Promise<
     return false;
   }
 }
+
+export interface ContactMessage {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}
+
+// Submit a contact message to Firestore
+export async function submitContactMessage(msg: ContactMessage): Promise<boolean> {
+  const path = 'contact_messages';
+  try {
+    const contactsCol = collection(db, path);
+    await addDoc(contactsCol, {
+      name: msg.name.trim(),
+      email: msg.email.trim(),
+      subject: msg.subject.trim(),
+      message: msg.message.trim(),
+      timestamp: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error("Error submitting contact message:", error);
+    handleFirestoreError(error, OperationType.WRITE, path);
+    return false;
+  }
+}

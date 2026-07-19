@@ -1,9 +1,37 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Helpers
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Leaderboard Rules
     match /leaderboard/{document} {
       allow read, create: if true;
-      allow update, delete: if false; // do not allow editing or deleting scores once posted
+      allow update, delete: if false;
+    }
+
+    // Validation helper for Contact Messages
+    function isValidContactMessage(data) {
+      return data.keys().hasAll(['name', 'email', 'subject', 'message', 'timestamp'])
+        && data.keys().size() == 5
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.email is string && data.email.size() > 0 && data.email.size() <= 150
+        && data.subject is string && data.subject.size() > 0 && data.subject.size() <= 150
+        && data.message is string && data.message.size() > 0 && data.message.size() <= 1000
+        && data.timestamp == request.time;
+    }
+
+    // Contact Messages Rules
+    match /contact_messages/{document} {
+      allow create: if isValidContactMessage(request.resource.data);
+      allow read, update, delete: if false;
     }
   }
 }

@@ -13,6 +13,7 @@ import StatsPanel from './components/StatsPanel';
 import LeaderboardPanel from './components/LeaderboardPanel';
 import UsernameModal from './components/UsernameModal';
 import { AdPlayerOverlay } from './components/AdPlayerOverlay';
+import CompliancePages from './components/CompliancePages';
 import { submitHighScore } from './lib/firebase';
 import { 
   Shield, 
@@ -79,6 +80,8 @@ const INITIAL_ACHIEVEMENTS = [
 export default function App() {
   const [gameState, setGameState] = useState<'splash' | 'game' | 'upgrades' | 'stats' | 'gameover' | 'leaderboard'>('splash');
   const [paused, setPaused] = useState(false);
+  const [showCompliance, setShowCompliance] = useState(false);
+  const [complianceTab, setComplianceTab] = useState<'about' | 'privacy' | 'contact'>('about');
 
   // Starter philosophy & death insights
   const [starterLoadout, setStarterLoadout] = useState<'balanced' | 'glass' | 'tank'>('balanced');
@@ -706,6 +709,30 @@ export default function App() {
                     <span className="w-1 h-1 bg-emerald-400 rounded-full animate-ping" />
                     <span>SYSTEM STATUS: ALL SYSTEMS NOMINAL</span>
                   </div>
+
+                  {/* Compliance Policy Footers */}
+                  <div className="flex justify-center items-center gap-3.5 text-[9px] font-mono text-slate-500 pt-1">
+                    <button
+                      onClick={() => { SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); }}
+                      className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                    >
+                      About
+                    </button>
+                    <span>•</span>
+                    <button
+                      onClick={() => { SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); }}
+                      className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                    >
+                      Privacy
+                    </button>
+                    <span>•</span>
+                    <button
+                      onClick={() => { SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); }}
+                      className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                    >
+                      Contact
+                    </button>
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -1001,6 +1028,13 @@ export default function App() {
 
           </AnimatePresence>
 
+          {showCompliance && (
+            <CompliancePages
+              onClose={() => setShowCompliance(false)}
+              initialTab={complianceTab}
+            />
+          )}
+
           {showUsernameModal && (
             <UsernameModal
               currentUsername={username}
@@ -1140,6 +1174,33 @@ export default function App() {
         </div>
 
       </div>
+
+      {/* Outer Global Compliance Footer for AdSense crawler compliance */}
+      <footer className="w-full max-w-6xl mt-6 border-t border-slate-900/60 pt-4 flex flex-col sm:flex-row items-center justify-between text-[10px] font-mono text-slate-500 z-10 select-none px-4 gap-3 sm:gap-0">
+        <p>© 2026 NEON RAIDER ARCADE. ALL RIGHTS RESERVED.</p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); }}
+            className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
+          >
+            About Arcade
+          </button>
+          <span>•</span>
+          <button
+            onClick={() => { SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); }}
+            className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
+          >
+            Privacy Policy
+          </button>
+          <span>•</span>
+          <button
+            onClick={() => { SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); }}
+            className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
+          >
+            Contact Hub
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
