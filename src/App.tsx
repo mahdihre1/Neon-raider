@@ -30,6 +30,7 @@ import {
   VolumeX, 
   Info,
   Smartphone,
+  Globe,
   ChevronRight,
   User,
   Loader,
@@ -747,28 +748,40 @@ export default function App() {
                     <span>SYSTEM STATUS: ALL SYSTEMS NOMINAL</span>
                   </div>
 
-                  {/* Compliance Policy Footers */}
-                  <div className="flex justify-center items-center gap-3.5 text-[9px] font-mono text-slate-500 pt-1">
-                    <button
-                      onClick={() => { SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); }}
-                      className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                  {/* Compliance Policy Footers & Official Domain */}
+                  <div className="flex flex-col items-center gap-1.5 pt-1">
+                    <a
+                      href="https://www.neon-raider.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[9px] font-mono font-bold text-cyan-400 hover:text-cyan-300 transition-colors uppercase tracking-wider flex items-center gap-1 bg-cyan-950/40 px-2.5 py-0.5 rounded-full border border-cyan-800/50"
                     >
-                      About
-                    </button>
-                    <span>•</span>
-                    <button
-                      onClick={() => { SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); }}
-                      className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
-                    >
-                      Privacy
-                    </button>
-                    <span>•</span>
-                    <button
-                      onClick={() => { SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); }}
-                      className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
-                    >
-                      Contact
-                    </button>
+                      <Globe className="w-3 h-3 text-cyan-400 animate-spin-slow" />
+                      <span>WWW.NEON-RAIDER.COM</span>
+                    </a>
+
+                    <div className="flex justify-center items-center gap-3.5 text-[9px] font-mono text-slate-500">
+                      <button
+                        onClick={() => { SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); }}
+                        className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                      >
+                        About
+                      </button>
+                      <span>•</span>
+                      <button
+                        onClick={() => { SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); }}
+                        className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                      >
+                        Privacy
+                      </button>
+                      <span>•</span>
+                      <button
+                        onClick={() => { SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); }}
+                        className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                      >
+                        Contact
+                      </button>
+                    </div>
                   </div>
                 </div>
               </motion.div>

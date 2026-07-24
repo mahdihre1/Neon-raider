@@ -131,7 +131,7 @@ export default function CompliancePages({ onClose, initialTab = 'about' }: Compl
             </div>
             
             <p className="text-[11px] text-slate-400">
-              Welcome to <span className="text-cyan-400 font-bold">NEON RAIDER ARCADE</span>, a premium space shooter and deep combat simulator. Designed with responsive, touch-drag dynamics, a robust weapon tuning grid, and interactive real-time telemetry.
+              Welcome to <span className="text-cyan-400 font-bold">NEON RAIDER ARCADE</span> (<a href="https://www.neon-raider.com/" target="_blank" rel="noopener noreferrer" className="text-cyan-300 underline hover:text-cyan-200">www.neon-raider.com</a>), a premium retro space shooter and deep combat simulator. Designed with responsive, touch-drag dynamics, a robust weapon tuning grid, and interactive real-time telemetry.
             </p>
 
             <div className="space-y-2.5">
@@ -174,7 +174,7 @@ export default function CompliancePages({ onClose, initialTab = 'about' }: Compl
             </div>
 
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              Last Updated: <span className="text-slate-200">July 19, 2026</span>. At Neon Raider Arcade, we are committed to providing a secure and transparent gaming environment. This Privacy Policy details how we compile, store, and utilize data.
+              Last Updated: <span className="text-slate-200">July 24, 2026</span>. At Neon Raider Arcade (<a href="https://www.neon-raider.com/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline">https://www.neon-raider.com/</a>), we are committed to providing a secure and transparent gaming environment. This Privacy Policy details how we compile, store, and utilize data.
             </p>
 
             <div className="space-y-2.5">
