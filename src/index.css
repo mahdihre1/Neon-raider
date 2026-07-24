@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+@layer base {
+  html, body {
+    overscroll-behavior: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  /* Prevent canvas scrolling or refreshing on touch devices */
+  canvas {
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* Custom animations for mobile HUD & EMP shockwaves */
+@keyframes emp-ripple {
+  0% { transform: scale(0.2); opacity: 1; }
+  100% { transform: scale(2.5); opacity: 0; }
+}
+
+.animate-emp-ripple {
+  animation: emp-ripple 0.8s ease-out forwards;
+}

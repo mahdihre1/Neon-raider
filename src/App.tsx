@@ -121,6 +121,32 @@ export default function App() {
   const [scrapsDoubled, setScrapsDoubled] = useState(false);
   const [playingDoubleAd, setPlayingDoubleAd] = useState(false);
 
+  // PWA Install prompt state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
+
   // Load from local storage on mount
   useEffect(() => {
     try {
@@ -703,6 +729,17 @@ export default function App() {
                     <Award className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
                     <span>LAUNCH FLIGHT ACADEMY</span>
                   </button>
+
+                  {/* PWA MOBILE APP INSTALL BUTTON */}
+                  {isInstallable && (
+                    <button
+                      onClick={handleInstallPWA}
+                      className="w-full py-2.5 bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-black rounded-lg text-[10px] font-mono tracking-widest transition flex items-center justify-center gap-2 uppercase shadow-lg shadow-purple-500/20 active:scale-98 cursor-pointer animate-bounce"
+                    >
+                      <Smartphone className="w-4 h-4 text-purple-200" />
+                      <span>INSTALL MOBILE APP</span>
+                    </button>
+                  )}
 
                   {/* Simple Touch controls hint */}
                   <div className="text-center pt-1.5 text-[8px] text-slate-500 font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 bg-slate-900/20 py-1.5 rounded-lg border border-slate-850">

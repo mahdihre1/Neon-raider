@@ -2,12 +2,34 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#020617" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Neon Raider" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <link rel="manifest" href="/manifest.json" />
     <title>Neon Raider Arcade</title>
+
     <script>
       window.adsbygoogle = window.adsbygoogle || [];
-      window.adBreak = window.adBreak || function() { (window.adsbygoogle = window.adsbygoogle || []).push(arguments); };
-      window.adConfig = window.adConfig || function() { (window.adsbygoogle = window.adsbygoogle || []).push(arguments); };
+      window.adBreak = window.adConfig = function(o) {
+        try {
+          (window.adsbygoogle = window.adsbygoogle || []).push(o);
+        } catch (e) {
+          console.warn('Handled AdSense push error:', e);
+        }
+      };
+
+      // Suppress unhandled TagError from adsbygoogle Auto-Ads when no <ins> tags are available
+      window.addEventListener('error', function(e) {
+        if (e && e.message && (e.message.indexOf('adsbygoogle') !== -1 || e.message.indexOf('TagError') !== -1)) {
+          console.warn('Suppressed AdSense TagError:', e.message);
+          e.preventDefault();
+          return true;
+        }
+      });
+
       window.adConfig({
         sound: 'on',
         preloadAdBreaks: 'on'

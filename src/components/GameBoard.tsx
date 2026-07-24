@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Upgrades, SHIP_SKINS } from '../types';
 import { SynthAudio } from '../utils/audio';
+import { HapticFeedback } from '../utils/haptics';
 import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery, Tv, ShieldAlert } from 'lucide-react';
 import { AdPlayerOverlay } from './AdPlayerOverlay';
 
@@ -280,12 +281,19 @@ export default function GameBoard({
   const [playingReviveAd, setPlayingReviveAd] = useState(false);
   const [hasRevived, setHasRevived] = useState(false);
 
+  // Mobile EMP Shockwave Super Skill state
+  const [empEnergy, setEmpEnergy] = useState(0);
+  const [empReady, setEmpReady] = useState(false);
+  const [empRippleActive, setEmpRippleActive] = useState(false);
+
   // references for mutable game loop state to avoid React re-renders breaking 60 FPS
   const stateRef = useRef({
     tutorialStep: 0,
     tutorialProgressCount: 0,
     tutorialPhaseCleared: false,
     hasRevivedThisRun: false,
+    empEnergy: 0,
+    empMaxEnergy: 100,
     score: 0,
     scrap: 0,
     enemiesKilled: 0,
@@ -395,6 +403,55 @@ export default function GameBoard({
   const setChapterTransitionScreen = (trans: boolean) => {
     setChapterTransition(trans);
     stateRef.current.storyChapterTransition = trans;
+  };
+
+  const triggerEmpNova = () => {
+    const state = stateRef.current;
+    if (state.empEnergy < 100 || paused || state.showingBuffChoice) return;
+
+    state.empEnergy = 0;
+    setEmpEnergy(0);
+    setEmpReady(false);
+    setEmpRippleActive(true);
+    setTimeout(() => setEmpRippleActive(false), 800);
+
+    // Wipe all hostile projectiles
+    state.projectiles = state.projectiles.filter(p => p.fromPlayer);
+
+    // Deal massive EMP damage to active hostiles
+    state.enemies.forEach(enemy => {
+      enemy.health -= 120;
+      for (let i = 0; i < 12; i++) {
+        state.particles.push({
+          x: enemy.x + enemy.width / 2,
+          y: enemy.y + enemy.height / 2,
+          vx: (Math.random() - 0.5) * 280,
+          vy: (Math.random() - 0.5) * 280,
+          color: '#00f0ff',
+          size: Math.random() * 4 + 2,
+          alpha: 1,
+          decay: Math.random() * 0.05 + 0.02
+        });
+      }
+    });
+
+    // Remove killed non-boss enemies
+    state.enemies = state.enemies.filter(enemy => {
+      if (enemy.health <= 0 && enemy.type !== 'boss') {
+        state.score += 30;
+        state.scrap += 1;
+        state.enemiesKilled++;
+        return false;
+      }
+      return true;
+    });
+
+    SynthAudio.playExplosion();
+    SynthAudio.playPowerup();
+    HapticFeedback.heavyRumble();
+
+    setCosmicWarningBanner("⚡ EMP SHOCKWAVE DISCHARGED! ALL HOSTILE BULLETS WIPED!");
+    setTimeout(() => setCosmicWarningBanner(null), 2800);
   };
 
   const triggerBuffSelection = () => {
@@ -657,6 +714,10 @@ export default function GameBoard({
 
       if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
         onPause();
+      }
+
+      if (e.key === 'b' || e.key === 'B' || e.key === ' ' || e.code === 'Space') {
+        triggerEmpNova();
       }
     };
 
@@ -2476,6 +2537,9 @@ export default function GameBoard({
                 createExplosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2, enemy.color, enemy.type === 'boss' ? 35 : 12);
                 SynthAudio.playExplosion();
                 
+                // Charge EMP Energy (+10% per enemy, +25% for boss)
+                state.empEnergy = Math.min(100, state.empEnergy + (enemy.type === 'boss' ? 25 : 10));
+
                 // Add score + multiplier combo mechanics
                 let baseReward = enemy.type === 'boss' ? 500 : (enemy.type === 'bomber' ? 60 : (enemy.type === 'speeder' ? 30 : 20));
                 if ((enemy.type as any) === 'asteroid') {
@@ -2549,6 +2613,7 @@ export default function GameBoard({
               setShield(state.shield);
               state.multiplier = 1; // broken combo multiplier
               SynthAudio.playHurt();
+              HapticFeedback.impact();
               createExplosion(proj.x, proj.y, '#ef4444', 8);
             } else {
               // Glowing shield deflected sparks
@@ -2835,10 +2900,12 @@ export default function GameBoard({
             state.scrap += scrapAmount;
             setScrap(state.scrap);
             SynthAudio.playCollect();
+            HapticFeedback.tap();
           } else if (item.type === 'heal') {
             state.shield = Math.min(state.maxShield, state.shield + 25);
             setShield(state.shield);
             SynthAudio.playPowerup();
+            HapticFeedback.medium();
             
             // Score Multiplier Risk/Reward Rule:
             // Collecting a heal halves the current combo score multiplier rather than a full reset!
@@ -2851,18 +2918,22 @@ export default function GameBoard({
             player.powerups.invincibility = 8.0; // 8 seconds of ultimate shield
             setInvincibilityDuration(8);
             SynthAudio.playPowerup();
+            HapticFeedback.medium();
           } else if (item.type === 'double') {
             player.powerups.doubleLaser = 10.0; // 10s double shots
             setDoubleDuration(10);
             SynthAudio.playPowerup();
+            HapticFeedback.medium();
           } else if (item.type === 'magnet') {
             player.powerups.magnet = 12.0; // 12s massive item vacuum
             setMagnetDuration(12);
             SynthAudio.playPowerup();
+            HapticFeedback.medium();
           } else if (item.type === 'timewarp') {
             player.powerups.timewarp = 8.0; // 8s time warp slow-mo
             setTimewarpDuration(8);
             SynthAudio.playPowerup();
+            HapticFeedback.medium();
           }
 
           return false; // delete item
@@ -3810,12 +3881,47 @@ export default function GameBoard({
           <button 
             id="pause-btn"
             onClick={onPause} 
-            className="px-2.5 py-1 bg-slate-900 border border-slate-700/50 text-slate-300 hover:text-white text-[9px] font-mono font-black rounded-sm skew-x-[-10deg] hover:bg-slate-800 transition shadow-md"
+            className="px-3 py-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center bg-slate-900 border border-slate-700/50 text-slate-300 hover:text-white text-[10px] font-mono font-black rounded skew-x-[-10deg] hover:bg-slate-800 transition shadow-md active:scale-95 cursor-pointer"
           >
             <span className="inline-block skew-x-[10deg]">PAUSE</span>
           </button>
         </div>
       </div>
+
+      {/* MOBILE EMP SHOCKWAVE SUPER SKILL BUTTON */}
+      <div className="absolute bottom-4 right-3 z-30 flex flex-col items-end gap-1 select-none pointer-events-auto">
+        <button
+          id="emp-skill-btn"
+          onClick={triggerEmpNova}
+          disabled={!empReady}
+          className={`relative group flex items-center justify-center p-3 rounded-full border-2 transition-all duration-300 shadow-2xl active:scale-95 ${
+            empReady 
+              ? 'bg-gradient-to-r from-cyan-500 via-teal-400 to-cyan-300 border-cyan-100 text-slate-950 shadow-[0_0_25px_rgba(6,182,212,0.8)] animate-bounce cursor-pointer' 
+              : 'bg-slate-950/85 border-slate-800/80 text-slate-600 opacity-80 cursor-not-allowed'
+          }`}
+          style={{ minWidth: '56px', minHeight: '56px' }}
+        >
+          <Zap className={`w-6 h-6 ${empReady ? 'fill-current animate-pulse text-slate-950' : 'text-slate-500'}`} />
+          {!empReady && (
+            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-mono font-black text-cyan-400/90 pointer-events-none">
+              {empEnergy}%
+            </span>
+          )}
+        </button>
+        
+        <span className={`text-[8px] font-mono font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow ${
+          empReady ? 'bg-cyan-400 text-slate-950 font-bold animate-pulse' : 'bg-slate-900/90 text-slate-500 border border-slate-800'
+        }`}>
+          {empReady ? '⚡ EMP READY [TAP/SPACE]' : `CHARGE ${empEnergy}%`}
+        </span>
+      </div>
+
+      {/* EMP SHOCKWAVE VISUAL RIPPLE */}
+      {empRippleActive && (
+        <div className="absolute inset-0 z-20 pointer-events-none flex items-center justify-center overflow-hidden">
+          <div className="w-[600px] h-[600px] rounded-full border-8 border-cyan-400/90 bg-cyan-500/20 shadow-[0_0_100px_rgba(6,182,212,0.9)] animate-emp-ripple" />
+        </div>
+      )}
 
       {/* 2. BOSS INCOMING BANNER ALERT */}
       {bossActive && (
