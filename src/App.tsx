@@ -14,6 +14,7 @@ import LeaderboardPanel from './components/LeaderboardPanel';
 import UsernameModal from './components/UsernameModal';
 import { AdPlayerOverlay } from './components/AdPlayerOverlay';
 import CompliancePages from './components/CompliancePages';
+import { TutorialPanel } from './components/TutorialPanel';
 import { submitHighScore } from './lib/firebase';
 import { 
   Shield, 
@@ -98,6 +99,7 @@ export default function App() {
   // Tutorial modes state
   const [tutorialActive, setTutorialActive] = useState(false);
   const [showTutorialPrompt, setShowTutorialPrompt] = useState(false);
+  const [showTutorialModal, setShowTutorialModal] = useState(false);
   const [gameMode, setGameMode] = useState<'normal' | 'story'>('normal');
 
   // Persistence States
@@ -716,19 +718,16 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* FLIGHT ACADEMY TRAINING PORTAL */}
+                  {/* TACTICAL FIELD GUIDE & TUTORIAL PORTAL */}
                   <button
                     onClick={() => {
                       SynthAudio.playCollect();
-                      setTutorialActive(true);
-                      setPaused(false);
-                      setGameState('game');
-                      SynthAudio.startMusic();
+                      setShowTutorialModal(true);
                     }}
-                    className="w-full py-2 bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800 hover:border-cyan-500/30 text-cyan-400 font-bold rounded-lg text-[9px] font-mono tracking-widest transition flex items-center justify-center gap-1.5 uppercase shadow-sm cursor-pointer"
+                    className="w-full py-2.5 bg-gradient-to-r from-slate-900 via-cyan-950/60 to-slate-900 hover:from-cyan-900/60 hover:to-slate-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 hover:text-white font-black rounded-xl text-[10px] font-mono tracking-widest transition flex items-center justify-center gap-2 uppercase shadow-lg shadow-cyan-500/10 cursor-pointer active:scale-98"
                   >
-                    <Award className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-                    <span>LAUNCH FLIGHT ACADEMY</span>
+                    <Info className="w-4 h-4 text-cyan-400 animate-pulse" />
+                    <span>TACTICAL TUTORIAL & FIELD MANUAL</span>
                   </button>
 
                   {/* PWA MOBILE APP INSTALL BUTTON */}
@@ -1222,6 +1221,18 @@ export default function App() {
             <span className="truncate max-w-[170px]">PILOT ID: {username}</span>
           </div>
         </div>
+
+        {/* TACTICAL TUTORIAL & FIELD MANUAL MODAL */}
+        <TutorialPanel
+          isOpen={showTutorialModal}
+          onClose={() => setShowTutorialModal(false)}
+          onStartFlightAcademy={() => {
+            setTutorialActive(true);
+            setPaused(false);
+            setGameState('game');
+            SynthAudio.startMusic();
+          }}
+        />
 
       </div>
 

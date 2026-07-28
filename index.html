@@ -9,7 +9,21 @@
     <meta name="apple-mobile-web-app-title" content="Neon Raider" />
     <meta name="mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Neon Raider Arcade</title>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').then(function(reg) {
+            console.log('ServiceWorker registered:', reg.scope);
+          }).catch(function(err) {
+            console.warn('ServiceWorker registration error:', err);
+          });
+        });
+      }
+    </script>
 
     <script>
       window.adsbygoogle = window.adsbygoogle || [];
