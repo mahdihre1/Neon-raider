@@ -68,7 +68,8 @@ const INITIAL_STATS: GameStats = {
   totalScrap: 0,
   accumulatedScrap: 0,
   runsPlayed: 0,
-  enemiesDestroyed: 0
+  enemiesDestroyed: 0,
+  bossesDefeated: 0
 };
 
 const INITIAL_ACHIEVEMENTS = [
@@ -120,7 +121,7 @@ export default function App() {
     unlockedMedalsThisRun: [] as string[]
   });
 
-  // Rewarded Video Ad double scraps states
+  // Scraps booster state
   const [scrapsDoubled, setScrapsDoubled] = useState(false);
   const [playingDoubleAd, setPlayingDoubleAd] = useState(false);
 
@@ -155,10 +156,11 @@ export default function App() {
     try {
       const storedUpgrades = localStorage.getItem(LOCAL_STORAGE_UPGRADES_KEY);
       if (storedUpgrades) {
+        const parsed = JSON.parse(storedUpgrades);
         setUpgrades({
           ...INITIAL_UPGRADES,
-          ...JSON.parse(storedUpgrades),
-          selectedWeapon: 'plasma'
+          ...parsed,
+          selectedWeapon: parsed.selectedWeapon || 'plasma'
         });
       }
 
@@ -213,9 +215,8 @@ export default function App() {
         progress = currentStats.runsPlayed > 0 ? 1 : 0;
         unlocked = progress >= ach.progressMax;
       } else if (ach.id === 'boss_slayer') {
-        // Boss slayer state
-        progress = currentStats.enemiesDestroyed >= 1 ? 1 : 0; // Simplified tracker or set true if boss killed
-        unlocked = currentStats.highScore >= 1500; // Slaying a boss matches 1500 score milestone
+        progress = currentStats.bossesDefeated || 0;
+        unlocked = progress >= ach.progressMax;
       } else if (ach.id === 'scrap_baron') {
         progress = currentStats.accumulatedScrap;
         unlocked = progress >= ach.progressMax;
@@ -269,8 +270,24 @@ export default function App() {
     setGameState('splash');
   };
 
+  const handleReplayTutorial = () => {
+    SynthAudio.playCollect();
+    localStorage.removeItem('neon_raider_tutorial_completed_v1');
+    setTutorialActive(true);
+    setPaused(false);
+    setGameState('game');
+    SynthAudio.startMusic();
+  };
+
   // Run Game over handler
-  const handleGameOver = (finalScore: number, scrapSalvaged: number, enemiesKilled: number, dCause?: string, sUpgrade?: string) => {
+  const handleGameOver = (
+    finalScore: number,
+    scrapSalvaged: number,
+    enemiesKilled: number,
+    bossesDefeatedThisRun: number = 0,
+    dCause?: string,
+    sUpgrade?: string
+  ) => {
     SynthAudio.stopMusic();
     setScrapsDoubled(false);
 
@@ -283,13 +300,15 @@ export default function App() {
     const nextAccumulatedScrap = stats.accumulatedScrap + scrapSalvaged;
     const nextRuns = stats.runsPlayed + 1;
     const nextEnemies = stats.enemiesDestroyed + enemiesKilled;
+    const nextBosses = (stats.bossesDefeated || 0) + bossesDefeatedThisRun;
 
     const updatedStats: GameStats = {
       highScore: nextHighScore,
       totalScrap: nextTotalScrap,
       accumulatedScrap: nextAccumulatedScrap,
       runsPlayed: nextRuns,
-      enemiesDestroyed: nextEnemies
+      enemiesDestroyed: nextEnemies,
+      bossesDefeated: nextBosses
     };
 
     // Recalculate Achievements and detect if any medals were newly unlocked this specific run
@@ -719,16 +738,25 @@ export default function App() {
                   </div>
 
                   {/* TACTICAL FIELD GUIDE & TUTORIAL PORTAL */}
-                  <button
-                    onClick={() => {
-                      SynthAudio.playCollect();
-                      setShowTutorialModal(true);
-                    }}
-                    className="w-full py-2.5 bg-gradient-to-r from-slate-900 via-cyan-950/60 to-slate-900 hover:from-cyan-900/60 hover:to-slate-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 hover:text-white font-black rounded-xl text-[10px] font-mono tracking-widest transition flex items-center justify-center gap-2 uppercase shadow-lg shadow-cyan-500/10 cursor-pointer active:scale-98"
-                  >
-                    <Info className="w-4 h-4 text-cyan-400 animate-pulse" />
-                    <span>TACTICAL TUTORIAL & FIELD MANUAL</span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => {
+                        SynthAudio.playCollect();
+                        setShowTutorialModal(true);
+                      }}
+                      className="py-2.5 bg-gradient-to-r from-slate-900 via-cyan-950/60 to-slate-900 hover:from-cyan-900/60 hover:to-slate-900 border border-cyan-500/40 hover:border-cyan-400 text-cyan-300 hover:text-white font-black rounded-xl text-[9px] font-mono tracking-wider transition flex items-center justify-center gap-1.5 uppercase shadow-lg shadow-cyan-500/10 cursor-pointer active:scale-98"
+                    >
+                      <Info className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                      <span>FIELD MANUAL</span>
+                    </button>
+                    <button
+                      onClick={handleReplayTutorial}
+                      className="py-2.5 bg-gradient-to-r from-cyan-950/80 via-teal-950/60 to-cyan-950/80 hover:from-cyan-900/80 hover:to-teal-900/80 border border-cyan-400/50 hover:border-cyan-300 text-cyan-200 hover:text-white font-black rounded-xl text-[9px] font-mono tracking-wider transition flex items-center justify-center gap-1.5 uppercase shadow-lg shadow-cyan-500/20 cursor-pointer active:scale-98"
+                    >
+                      <Award className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                      <span>REPLAY TUTORIAL</span>
+                    </button>
+                  </div>
 
                   {/* PWA MOBILE APP INSTALL BUTTON */}
                   {isInstallable && (
@@ -1077,6 +1105,14 @@ export default function App() {
 
           </AnimatePresence>
 
+          {showTutorialModal && (
+            <TutorialPanel
+              isOpen={showTutorialModal}
+              onClose={() => setShowTutorialModal(false)}
+              onReplayTutorial={handleReplayTutorial}
+            />
+          )}
+
           {showCompliance && (
             <CompliancePages
               onClose={() => setShowCompliance(false)}
@@ -1236,7 +1272,7 @@ export default function App() {
 
       </div>
 
-      {/* Outer Global Compliance Footer for AdSense crawler compliance */}
+      {/* Outer Global Footer */}
       <footer className="w-full max-w-6xl mt-6 border-t border-slate-900/60 pt-4 flex flex-col sm:flex-row items-center justify-between text-[10px] font-mono text-slate-500 z-10 select-none px-4 gap-3 sm:gap-0">
         <p>© 2026 NEON RAIDER ARCADE. ALL RIGHTS RESERVED.</p>
         <div className="flex items-center gap-3">

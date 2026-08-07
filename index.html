@@ -8,6 +8,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Neon Raider" />
     <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="001e98a977be32cf6ce8abfb9a90d5b6917b516e" content="001e98a977be32cf6ce8abfb9a90d5b6917b516e" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
@@ -15,45 +16,15 @@
 
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js').then(function(reg) {
-            console.log('ServiceWorker registered:', reg.scope);
-          }).catch(function(err) {
-            console.warn('ServiceWorker registration error:', err);
-          });
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (let registration of registrations) {
+            registration.unregister();
+          }
         });
       }
     </script>
 
-    <script>
-      window.adsbygoogle = window.adsbygoogle || [];
-      window.adBreak = window.adConfig = function(o) {
-        try {
-          (window.adsbygoogle = window.adsbygoogle || []).push(o);
-        } catch (e) {
-          console.warn('Handled AdSense push error:', e);
-        }
-      };
 
-      // Suppress unhandled TagError from adsbygoogle Auto-Ads when no <ins> tags are available
-      window.addEventListener('error', function(e) {
-        if (e && e.message && (e.message.indexOf('adsbygoogle') !== -1 || e.message.indexOf('TagError') !== -1)) {
-          console.warn('Suppressed AdSense TagError:', e.message);
-          e.preventDefault();
-          return true;
-        }
-      });
-
-      window.adConfig({
-        sound: 'on',
-        preloadAdBreaks: 'on'
-      });
-    </script>
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5288827544368702"
-        crossorigin="anonymous"
-        data-ad-client="ca-pub-5288827544368702"
-        data-ad-frequency-hint="30s"
-        data-ad-break-test="on"></script>
   </head>
   <body>
     <div id="root"></div>

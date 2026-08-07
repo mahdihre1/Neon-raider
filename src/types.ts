@@ -22,6 +22,7 @@ export interface GameStats {
   accumulatedScrap: number; // For achievements
   runsPlayed: number;
   enemiesDestroyed: number;
+  bossesDefeated: number;
 }
 
 export interface Achievement {

@@ -186,16 +186,16 @@ export default function CompliancePages({ onClose, initialTab = 'about' }: Compl
               </div>
 
               <div className="space-y-1">
-                <h4 className="text-[10px] font-bold text-cyan-400 uppercase">2. THIRD-PARTY ADVERTISING & COOKIES</h4>
+                <h4 className="text-[10px] font-bold text-cyan-400 uppercase">2. COOKIE & LOCAL STORAGE MANAGEMENT</h4>
                 <p className="text-[9px] text-slate-400 leading-normal">
-                  To provide free gameplay modules, this site integrates third-party services including <span className="text-slate-200">Google AdSense H5 Games Ads</span>. These service providers may place and access cookies or device identifiers on your browser to show relevant contextual advertising, analyze page traffic, and prevent ad-fraud.
+                  This site utilizes standard local browser storage to retain your progress, active hangar ship upgrades, high scores, and user preferences offline.
                 </p>
               </div>
 
               <div className="space-y-1">
                 <h4 className="text-[10px] font-bold text-cyan-400 uppercase">3. COOKIE OPT-OUTS & CONTROL</h4>
                 <p className="text-[9px] text-slate-400 leading-normal">
-                  You can configure your browser to decline third-party cookies or alert you when cookies are sent. Clearing your browser cookies or storage cache will instantly reset your offline hangar upgrades, high score records, and user configuration keys.
+                  You can configure your browser to decline cookies or alert you when cookies are sent. Clearing your browser cookies or storage cache will reset your offline hangar upgrades, high score records, and local configuration settings.
                 </p>
               </div>
 
@@ -205,11 +205,6 @@ export default function CompliancePages({ onClose, initialTab = 'about' }: Compl
                   Our service does not knowingly collect personally identifiable info from children under the age of 13. If you believe your child has submitted sensitive email or form details, please notify us immediately in our Contact Hub to purge those records.
                 </p>
               </div>
-            </div>
-
-            <div className="bg-slate-950/40 border border-slate-850 p-2.5 rounded-xl text-[9px] text-slate-500 leading-normal">
-              <p className="font-bold text-slate-400 mb-0.5">ADSENSE H5 GAMES AD PLACEMENT COMPLIANCE:</p>
-              This app conforms fully to the official Google H5 Games Ad placement criteria, utilizing safe event callbacks, non-invasive frequency caps, and graceful fallbacks during offline gameplay modules.
             </div>
           </motion.div>
         )}

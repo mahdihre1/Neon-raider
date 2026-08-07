@@ -19,8 +19,40 @@ const WEAPONS_CONFIG = [
     name: 'Plasma Laser',
     color: '#00f0ff',
     icon: Zap,
-    description: 'Searing focused plasma bolts with high projectile speed and rapid precision firing.',
+    description: 'High-velocity cyan capsule bolts with a white-hot core. Pinpoint accuracy and ultra-rapid fire.',
     upgradeKey: 'weaponPlasmaLevel' as const,
+  },
+  {
+    id: 'ion',
+    name: 'Ion Pulse',
+    color: '#10b981',
+    icon: Crosshair,
+    description: 'Concentric emerald kinetic orbs with electron orbit rings. Triggers explosive AOE shockwave bursts on hit.',
+    upgradeKey: 'weaponIonLevel' as const,
+  },
+  {
+    id: 'wave',
+    name: 'Wave Beam',
+    color: '#a855f7',
+    icon: RefreshCw,
+    description: 'Oscillating purple crescent blades that phase in sine waves and slice through multiple targets with inherent piercing.',
+    upgradeKey: 'weaponWaveLevel' as const,
+  },
+  {
+    id: 'neutron',
+    name: 'Neutron Flare',
+    color: '#f59e0b',
+    icon: Flame,
+    description: 'Heavy radioactive 8-point starburst flares dealing massive single-target impact and detonating into cluster embers.',
+    upgradeKey: 'weaponNeutronLevel' as const,
+  },
+  {
+    id: 'tesla',
+    name: 'Tesla Volt',
+    color: '#38bdf8',
+    icon: Zap,
+    description: 'Hyper-speed crackling electric lightning bolts that arc high-voltage chain lightning to nearby hostiles.',
+    upgradeKey: 'weaponTeslaLevel' as const,
   },
 ];
 
@@ -37,7 +69,14 @@ export default function UpgradesStore({
 
   // Progressive, higher costs as requested
   const getUpgradeCost = (key: string, currentLevel: number) => {
-    if (key === 'weaponType' || key === 'weaponPlasmaLevel' || key === 'weaponIonLevel' || key === 'weaponWaveLevel') {
+    if (
+      key === 'weaponType' ||
+      key === 'weaponPlasmaLevel' ||
+      key === 'weaponIonLevel' ||
+      key === 'weaponWaveLevel' ||
+      key === 'weaponNeutronLevel' ||
+      key === 'weaponTeslaLevel'
+    ) {
       if (currentLevel === 1) return 500;
       if (currentLevel === 2) return 1200;
       if (currentLevel === 3) return 2500;
@@ -149,7 +188,7 @@ export default function UpgradesStore({
 
               {/* Weapon Selector Grid */}
               {WEAPONS_CONFIG.length > 1 && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   {WEAPONS_CONFIG.map((wpn) => {
                     const isSelected = (upgrades.selectedWeapon || 'plasma') === wpn.id;
                     const currentLevel = upgrades[wpn.upgradeKey] as number || 1;

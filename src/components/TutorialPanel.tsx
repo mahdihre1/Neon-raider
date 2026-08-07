@@ -26,9 +26,10 @@ interface TutorialPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onStartFlightAcademy?: () => void;
+  onReplayTutorial?: () => void;
 }
 
-export const TutorialPanel: React.FC<TutorialPanelProps> = ({ isOpen, onClose, onStartFlightAcademy }) => {
+export const TutorialPanel: React.FC<TutorialPanelProps> = ({ isOpen, onClose, onStartFlightAcademy, onReplayTutorial }) => {
   const [activeCategory, setActiveCategory] = useState<'avoid' | 'collect' | 'controls'>('avoid');
 
   if (!isOpen) return null;
@@ -428,12 +429,16 @@ export const TutorialPanel: React.FC<TutorialPanelProps> = ({ isOpen, onClose, o
             </div>
 
             <div className="flex items-center gap-2.5 w-full sm:w-auto">
-              {onStartFlightAcademy && (
+              {(onReplayTutorial || onStartFlightAcademy) && (
                 <button
                   onClick={() => {
                     SynthAudio.playCollect();
                     onClose();
-                    onStartFlightAcademy();
+                    if (onReplayTutorial) {
+                      onReplayTutorial();
+                    } else if (onStartFlightAcademy) {
+                      onStartFlightAcademy();
+                    }
                   }}
                   className="flex-1 sm:flex-initial px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 rounded-lg text-xs font-mono font-bold tracking-wider transition flex items-center justify-center gap-1.5 uppercase cursor-pointer"
                 >

@@ -1,344 +1,248 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { Tv, Zap, CheckCircle2, X, ExternalLink, ShieldCheck, Sparkles, Volume2, VolumeX, RefreshCw } from 'lucide-react';
 import { SynthAudio } from '../utils/audio';
-import { Tv, Volume2, Sparkles, Loader2, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 interface AdPlayerOverlayProps {
+  adName: 'revive_ad' | 'double_scraps';
   onReward: () => void;
   onCancel: () => void;
-  adName: 'revive_ad' | 'double_scraps';
+  directAdUrl?: string; // Optional direct HilltopAds link if available
 }
 
-const MOCK_ADS = [
-  {
-    sponsor: "VIPER PLASMA DYNAMICS",
-    tagline: "OBLITERATE SPACE ASTEROIDS IN STYLE",
-    desc: "Upgrade to the dual-channel Viper Interceptor loadout. Experience up to +15% rapid-fire frequencies on your main plasma arrays. Available now in the Hangar shop!",
-    badge: "HYPER-DRIVE COMPATIBLE",
-    color: "from-pink-500 to-rose-600",
-    glow: "rgba(244, 63, 94, 0.3)"
-  },
-  {
-    sponsor: "AMETHYST MINING CORP",
-    tagline: "SALVAGING THE GALAXY, ONE ROCK AT A TIME",
-    desc: "High hazard, astronomical pay! Join our harvesting fleet in the deep Orion Nebula. Harness raw amethyst crystals with state-of-the-art quantum vacuums.",
-    badge: "FLEET POSITIONS OPEN",
-    color: "from-purple-500 to-indigo-600",
-    glow: "rgba(147, 51, 234, 0.3)"
-  },
-  {
-    sponsor: "CYBERDRONE NANO-SHIELDING",
-    tagline: "BECAUSE SPACE IS A HOSTILE VOID",
-    desc: "Deploy automated nanite shield-cells. Offers up to 40% cumulative damage mitigation on heavy laser collisions. Shield your vessel, survive the sector!",
-    badge: "50% DISCOUNT ACTIVE",
-    color: "from-emerald-500 to-teal-600",
-    glow: "rgba(16, 185, 129, 0.3)"
-  },
-  {
-    sponsor: "CO-PILOT SENTIENT AI v4.2",
-    tagline: "INTELLIGENT DIAGNOSTICS FOR ELITE PILOTS",
-    desc: "Tired of manual asteroid targeting? Let our neural network auto-aim secondary ion pulses while you focus on high-speed thruster maneuvers. Start a 30-cycle trial!",
-    badge: "NEURAL NETWORK ON-LINE",
-    color: "from-cyan-500 to-blue-600",
-    glow: "rgba(6, 182, 212, 0.3)"
-  }
-];
+export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
+  adName,
+  onReward,
+  onCancel,
+  directAdUrl
+}) => {
+  const [timeLeft, setTimeLeft] = useState(5);
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [activeSponsorIndex, setActiveSponsorIndex] = useState(0);
 
-export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({ onReward, onCancel, adName }) => {
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [countdown, setCountdown] = useState(5);
-  const [adIndex] = useState(() => Math.floor(Math.random() * MOCK_ADS.length));
-  const [isRealAdActive, setIsRealAdActive] = useState(false);
-  const [statusText, setStatusText] = useState("ESTABLISHING HIGH-BANDWIDTH SYNC...");
-  
-  // Real-time diagnostics
-  const [hasAdScript, setHasAdScript] = useState(false);
-  const [isAdBreakDefined, setIsAdBreakDefined] = useState(false);
-  const [lastBreakStatus, setLastBreakStatus] = useState<string>("none");
-  const [diagnosticReason, setDiagnosticReason] = useState<string>("Checking Google AdSense setup...");
-  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const sponsors = [
+    {
+      brand: "HILLTOP ADS NETWORK",
+      title: "HIGH-PERFORMANCE TECH MONETIZATION",
+      description: "Blazing fast global CPM network & anti-fraud ad infrastructure for next-gen games.",
+      badge: "VERIFIED PARTNER",
+      cta: "EXPLORE NETWORK",
+      color: "from-cyan-500 to-blue-600"
+    },
+    {
+      brand: "NEON CORE QUANTUM DRIVE",
+      title: "OVERCLOCK YOUR FLIGHT SYSTEM",
+      description: "Upgrade your hull shields with plasma quantum matrix drives. Zero latency performance.",
+      badge: "CYBER HARDWARE",
+      cta: "UPGRADE VESSEL",
+      color: "from-purple-500 to-indigo-600"
+    },
+    {
+      brand: "CYBERPUNK ARCADE PASS",
+      title: "UNLIMITED TACTICAL SORTIES",
+      description: "Dominate the global leaderboards with ultra-low latency server synchronization.",
+      badge: "ARCADE PREMIUM",
+      cta: "VIEW LEADERBOARDS",
+      color: "from-amber-500 to-yellow-500"
+    }
+  ];
 
   useEffect(() => {
-    // 1. ATTEMPT REAL GOOGLE ADSENSE H5 GAMES adBreak
-    const win = window as any;
-    let fallbackTimer: number;
+    setActiveSponsorIndex(Math.floor(Math.random() * sponsors.length));
+  }, []);
 
-    const safeReward = () => {
-      setTimeout(() => {
-        onReward();
-      }, 0);
-    };
-
-    const safeCancel = () => {
-      setTimeout(() => {
-        onCancel();
-      }, 0);
-    };
-
-    let fallbackCleanup: (() => void) | undefined;
-    let pollInterval: number | undefined;
-
-    const startFallback = () => {
-      setIsRealAdActive(false);
-      setStatusText("SPONSOR BROADCAST ACTIVE");
-      
-      // Fallback 5-second countdown timer
-      const interval = setInterval(() => {
-        setCountdown((prev) => {
-          if (prev <= 1) {
-            clearInterval(interval);
-            // Completed!
-            SynthAudio.playPowerup();
-            safeReward();
-            return 0;
-          }
-          // Tick sound
-          SynthAudio.playCollect();
-          return prev - 1;
-        });
-      }, 1000);
-
-      fallbackCleanup = () => clearInterval(interval);
-    };
-
-    const checkAndRun = () => {
-      const adScriptEl = document.querySelector('script[src*="adsbygoogle"]');
-      setHasAdScript(!!adScriptEl);
-      setIsAdBreakDefined(!!win.adBreak);
-
-      if (win.adBreak) {
-        try {
-          setStatusText("REQUESTING AD BREAK...");
-          win.adBreak({
-            type: 'reward',
-            name: adName,
-            beforeAd: () => {
-              setIsRealAdActive(true);
-              setStatusText("PLAYING REAL AD...");
-              setDiagnosticReason("Real Google AdSense H5 ad active and playing.");
-            },
-            afterAd: () => {
-              setIsRealAdActive(false);
-            },
-            beforeReward: (showAdFn: () => void) => {
-              showAdFn();
-            },
-            adDismissed: () => {
-              safeCancel();
-            },
-            adViewed: () => {
-              safeReward();
-            },
-            adBreakDone: (placementInfo: any) => {
-              console.log("AdSense H5 Ad Placement Completed:", placementInfo);
-              const status = placementInfo?.breakStatus || "unknown";
-              setLastBreakStatus(status);
-              
-              if (status === 'notReady') {
-                setDiagnosticReason("AdSense API returned 'notReady'. Inside development sandboxes and preview iframes, live Google ad fills are blocked/omitted. Transitioning gracefully to our offline sponsor backup.");
-                startFallback();
-              } else if (status === 'error') {
-                setDiagnosticReason("AdSense API returned 'error' during ad break request. Transitioning gracefully to our offline sponsor backup.");
-                startFallback();
-              } else if (status === 'timeout') {
-                setDiagnosticReason("AdSense API request timed out. Transitioning gracefully to our offline sponsor backup.");
-                startFallback();
-              } else if (status === 'ignored') {
-                setDiagnosticReason("AdSense API returned 'ignored' (possibly due to frequency caps). Transitioning gracefully to our offline sponsor backup.");
-                startFallback();
-              } else {
-                setDiagnosticReason(`Completed with AdSense status: ${status}`);
-              }
-            }
-          });
-        } catch (err) {
-          console.warn("Google H5 ads broke, launching fallback:", err);
-          setDiagnosticReason("AdSense adBreak function call threw an exception. Transitioning gracefully to our offline sponsor backup.");
-          startFallback();
-        }
-      } else {
-        // No AdSense object loaded
-        setDiagnosticReason("window.adBreak is undefined. The Google Ads script could not load or was blocked by an AdBlocker. Transitioning gracefully to our offline sponsor backup.");
-        startFallback();
+  // Timer Countdown Effect
+  useEffect(() => {
+    if (timeLeft <= 0) {
+      setIsCompleted(true);
+      if (!isMuted) {
+        SynthAudio.playCollect();
       }
-    };
-
-    // If script tag is in DOM but not loaded yet, poll briefly
-    const adScript = document.querySelector('script[src*="adsbygoogle"]');
-    if (!win.adBreak && adScript) {
-      let attempts = 0;
-      pollInterval = window.setInterval(() => {
-        attempts++;
-        if (win.adBreak) {
-          clearInterval(pollInterval);
-          checkAndRun();
-        } else if (attempts >= 10) { // Max 1.0 second wait
-          clearInterval(pollInterval);
-          checkAndRun();
-        }
-      }, 100);
-    } else {
-      checkAndRun();
+      return;
     }
 
-    return () => {
-      if (pollInterval) clearInterval(pollInterval);
-      if (fallbackCleanup) fallbackCleanup();
-    };
-  }, [adName, onReward, onCancel]);
+    const timer = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          setIsCompleted(true);
+          if (!isMuted) {
+            SynthAudio.playCollect();
+          }
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
 
-  const ad = MOCK_ADS[adIndex];
+    return () => clearInterval(timer);
+  }, [timeLeft, isMuted]);
+
+  const handleClaimReward = () => {
+    SynthAudio.playCollect();
+    onReward();
+  };
+
+  const handleVisitSponsor = () => {
+    if (directAdUrl) {
+      window.open(directAdUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      // Fallback HilltopAds / sponsor portal reference
+      window.open('https://hilltopads.com', '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const currentSponsor = sponsors[activeSponsorIndex];
+  const totalDuration = 5;
+  const progressPercent = Math.min(100, Math.max(0, ((totalDuration - timeLeft) / totalDuration) * 100));
 
   return (
     <AnimatePresence>
-      {isPlaying && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-xl select-none">
+        {/* Outer Glow Background */}
+        <div className="absolute inset-0 bg-gradient-to-b from-cyan-950/20 via-slate-950/80 to-purple-950/20 pointer-events-none" />
+
         <motion.div
-          id="ad-player-overlay"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-slate-950/98 z-[99999] flex flex-col items-center justify-center p-6 text-slate-100 overflow-y-auto font-mono select-none"
+          initial={{ opacity: 0, scale: 0.92, y: 10 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.9, y: -10 }}
+          className="relative w-full max-w-lg bg-slate-900/95 border-2 border-cyan-500/40 rounded-2xl shadow-[0_0_50px_rgba(6,182,212,0.25)] overflow-hidden flex flex-col"
         >
-          {/* Holographic background noise */}
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(18,18,18,0)_50%,rgba(0,0,0,0.3)_50%),linear-gradient(90deg,rgba(255,0,0,0.03),rgba(0,255,0,0.01),rgba(0,0,255,0.03))] bg-[size:100%_4px,6px_100%] pointer-events-none" />
-          
-          <div className="w-full max-w-md bg-slate-900 border-2 border-amber-500/30 rounded-2xl p-5 relative flex flex-col gap-5 shadow-[0_0_50px_rgba(245,158,11,0.15)] my-auto">
-            
-            {/* Blinking corner decals */}
-            <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-amber-400 animate-pulse" />
-            <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-amber-400 animate-pulse" />
-            <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-amber-400 animate-pulse" />
-            <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-amber-400 animate-pulse" />
-
-            {/* Header / Network Status */}
-            <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2 text-xs text-amber-400 font-bold tracking-widest">
-                <Tv className="w-4 h-4 text-amber-400 animate-pulse" />
-                <span>SPONSOR FEED INJECTION</span>
+          {/* Top Header Bar */}
+          <div className="bg-slate-950/80 border-b border-cyan-500/20 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                <Tv className="w-4 h-4 animate-pulse" />
               </div>
-              <span className="text-[9px] bg-amber-500/10 border border-amber-500/20 text-amber-400 px-2 py-0.5 rounded font-black tracking-widest animate-pulse">
-                {statusText}
-              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-mono font-black text-cyan-400 tracking-widest uppercase">
+                    SPONSOR BROADCAST
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/30 text-[8px] font-mono text-cyan-300 font-bold">
+                    <ShieldCheck className="w-2.5 h-2.5 text-cyan-400" />
+                    HILLTOP ADS VERIFIED
+                  </span>
+                </div>
+                <p className="text-[9px] font-mono text-slate-400">
+                  {adName === 'revive_ad' ? 'REWARD: FULL SHIELD EMERGENCY REVIVE' : 'REWARD: 2X SCRAP MULTIPLIER'}
+                </p>
+              </div>
             </div>
 
-            {/* Simulated Live Stream Block */}
-            {!isRealAdActive ? (
-              <div className="flex flex-col gap-4">
-                {/* Visual Ad Box */}
-                <div className={`relative bg-gradient-to-br ${ad.color} border border-white/10 rounded-xl p-5 text-center min-h-[160px] flex flex-col justify-between overflow-hidden shadow-2xl`}>
-                  
-                  {/* Subtle Gridlines overlay */}
-                  <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:12px_12px] pointer-events-none" />
-                  
-                  {/* Glowing core shadow */}
-                  <div className="absolute inset-0 mix-blend-screen pointer-events-none" style={{ boxShadow: `inset 0 0 40px ${ad.glow}` }} />
+            <button
+              onClick={onCancel}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800/60 rounded-lg transition cursor-pointer"
+              title="Abort Broadcast"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
 
-                  <div>
-                    <span className="text-[8px] bg-black/40 border border-white/20 text-white font-black px-2 py-0.5 rounded-full uppercase tracking-widest inline-block mb-2">
-                      {ad.badge}
-                    </span>
-                    <h4 className="text-sm font-black text-white uppercase tracking-tight leading-tight">{ad.sponsor}</h4>
-                    <p className="text-[10px] text-amber-200 font-black tracking-wider uppercase mt-1 italic">&ldquo;{ad.tagline}&rdquo;</p>
-                  </div>
+          {/* Ad Broadcast Canvas Simulation */}
+          <div className="relative p-6 bg-slate-950 flex flex-col items-center justify-center text-center overflow-hidden min-h-[260px]">
+            {/* Cyber Grid Lines */}
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:16px_16px] opacity-30" />
 
-                  <p className="text-[9px] text-slate-150 font-sans leading-relaxed mt-3 px-1">
-                    {ad.desc}
-                  </p>
+            {/* Glowing Accent Ring */}
+            <div className={`absolute w-64 h-64 rounded-full bg-gradient-to-r ${currentSponsor.color} blur-[90px] opacity-20 animate-pulse pointer-events-none`} />
 
-                  <div className="flex justify-between items-center mt-3 pt-3 border-t border-white/10">
-                    <span className="text-[8px] text-white/50">SECURE BROADCAST NETWORK</span>
-                    <div className="flex gap-0.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:0.1s]" />
-                      <span className="w-1.5 h-1.5 rounded-full bg-white/40 animate-bounce [animation-delay:0.2s]" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Progress bar and counter */}
-                <div className="space-y-2 mt-1">
-                  <div className="flex justify-between items-center text-[10px] font-bold text-slate-400">
-                    <span>TRANSMISSION COHERENCY</span>
-                    <span className="text-amber-400 font-black">{countdown} SECS REMAINING</span>
-                  </div>
-                  {/* Outer bar */}
-                  <div className="w-full h-2.5 bg-slate-950 border border-slate-800 rounded-full overflow-hidden p-0.5">
-                    <motion.div
-                      initial={{ width: "0%" }}
-                      animate={{ width: "100%" }}
-                      transition={{ duration: 5, ease: "linear" }}
-                      className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full"
-                    />
-                  </div>
-                </div>
+            {/* Content Display */}
+            <div className="relative z-10 max-w-md space-y-4">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider">
+                <Sparkles className="w-3 h-3 text-cyan-400 animate-spin" />
+                {currentSponsor.badge}
               </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-                <Loader2 className="w-8 h-8 text-amber-400 animate-spin" />
-                <span className="text-xs text-slate-400 tracking-wider">PLAYING CLIENT BROADSHEET AD...</span>
-              </div>
-            )}
 
-            {/* Google AdSense Diagnostics Toggle Block */}
-            <div className="border-t border-slate-800/80 pt-3 flex flex-col gap-2">
+              <div className="space-y-1">
+                <h3 className="text-lg font-black font-mono text-white tracking-wide uppercase">
+                  {currentSponsor.brand}
+                </h3>
+                <p className="text-xs font-mono font-bold text-cyan-300 tracking-wider uppercase">
+                  {currentSponsor.title}
+                </p>
+              </div>
+
+              <p className="text-[11px] font-mono text-slate-350 leading-relaxed max-w-xs mx-auto">
+                {currentSponsor.description}
+              </p>
+
+              {/* Sponsor Direct Link Button */}
               <button
-                type="button"
-                onClick={() => setShowDiagnostics(!showDiagnostics)}
-                className="w-full text-[10px] bg-slate-950/80 hover:bg-slate-950 border border-slate-800 hover:border-amber-500/40 text-slate-400 hover:text-amber-400 transition-all rounded px-2.5 py-1.5 flex justify-between items-center"
+                onClick={handleVisitSponsor}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-slate-800/80 hover:bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 hover:text-white text-[10px] font-mono font-bold tracking-wider transition cursor-pointer"
               >
-                <span className="flex items-center gap-1.5">
-                  <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-                  <span>GOOGLE ADSENSE H5 GAMES DIAGNOSTICS</span>
-                </span>
-                <span className="text-[8px] font-bold text-slate-500">
-                  {showDiagnostics ? "HIDE ▲" : "SHOW ▼"}
-                </span>
+                <span>{currentSponsor.cta}</span>
+                <ExternalLink className="w-3 h-3 text-cyan-400" />
               </button>
-
-              <AnimatePresence>
-                {showDiagnostics && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden bg-slate-950 border border-slate-800/60 rounded p-3 text-[9px] flex flex-col gap-2 text-slate-300"
-                  >
-                    <div className="flex justify-between items-center border-b border-slate-850 pb-1.5">
-                      <span className="text-slate-500">Script Tag (adsbygoogle):</span>
-                      <span className={hasAdScript ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
-                        {hasAdScript ? "Detected (ca-pub-5288827544368702)" : "Missing / Blocked"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center border-b border-slate-850 pb-1.5">
-                      <span className="text-slate-500">window.adBreak API:</span>
-                      <span className={isAdBreakDefined ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
-                        {isAdBreakDefined ? "Active & Hooked" : "Not Ready / Queueing"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center border-b border-slate-850 pb-1.5">
-                      <span className="text-slate-500">Last Placement Status:</span>
-                      <span className="text-amber-400 font-mono font-bold uppercase">{lastBreakStatus}</span>
-                    </div>
-                    <div className="text-[8px] leading-relaxed text-slate-400 bg-slate-900/40 border border-slate-850/60 rounded p-2 mt-1">
-                      <span className="text-amber-500 font-bold">INFO: </span>
-                      {diagnosticReason}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
             </div>
 
-            {/* Footer / Info / Skip Trigger */}
-            <div className="flex justify-between items-center text-[8px] text-slate-500 border-t border-slate-850 pt-3">
-              <span>AD CLIENT ID: ca-pub-5288827544368702</span>
-              <div className="flex items-center gap-1">
-                <Volume2 className="w-3 h-3 text-slate-500" />
-                <span>AUDIO SYNTH CONNECTED</span>
+            {/* Audio Mute Toggle */}
+            <button
+              onClick={() => setIsMuted(!isMuted)}
+              className="absolute bottom-3 right-3 p-2 rounded-lg bg-slate-900/80 border border-slate-700/60 text-slate-400 hover:text-white text-xs transition cursor-pointer"
+            >
+              {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          {/* Progress & Verification Bar */}
+          <div className="bg-slate-950/90 px-6 py-2.5 border-t border-slate-800 flex items-center justify-between gap-4">
+            <div className="flex-1 space-y-1">
+              <div className="flex justify-between items-center text-[9px] font-mono font-bold">
+                <span className="text-slate-400 uppercase">BROADCAST PROGRESS</span>
+                <span className={isCompleted ? "text-emerald-400" : "text-cyan-400"}>
+                  {isCompleted ? "100% COMPLETE" : `${timeLeft}s REMAINING`}
+                </span>
               </div>
+              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    isCompleted
+                      ? "bg-gradient-to-r from-emerald-500 to-teal-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]"
+                      : "bg-gradient-to-r from-cyan-500 to-blue-500"
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="text-right font-mono text-[8px] text-slate-500 shrink-0">
+              <div className="text-slate-400 font-bold">HILLTOP ADS TAG</div>
+              <div className="text-slate-600 truncate max-w-[90px]">001e98a977...</div>
             </div>
           </div>
+
+          {/* Bottom Action Footer */}
+          <div className="p-4 bg-slate-900 border-t border-cyan-500/20 flex flex-col sm:flex-row items-center gap-3">
+            <button
+              onClick={onCancel}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-800 bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-slate-200 text-[10px] font-mono font-bold uppercase tracking-wider transition cursor-pointer"
+            >
+              CANCEL
+            </button>
+
+            {isCompleted ? (
+              <button
+                onClick={handleClaimReward}
+                className="w-full sm:flex-1 py-3 px-6 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black font-mono text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(16,185,129,0.4)] hover:shadow-[0_0_45px_rgba(16,185,129,0.6)] transition duration-300 flex items-center justify-center gap-2 cursor-pointer animate-pulse"
+              >
+                <CheckCircle2 className="w-4 h-4 fill-slate-950 text-emerald-400" />
+                <span>CLAIM REWARD ({adName === 'revive_ad' ? 'REVIVE SHIP' : '2X SCRAP'})</span>
+              </button>
+            ) : (
+              <button
+                disabled
+                className="w-full sm:flex-1 py-3 px-6 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-500 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center justify-center gap-2 cursor-not-allowed"
+              >
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                <span>WATCHING SPONSOR BROADCAST ({timeLeft}s)...</span>
+              </button>
+            )}
+          </div>
         </motion.div>
-      )}
+      </div>
     </AnimatePresence>
   );
 };

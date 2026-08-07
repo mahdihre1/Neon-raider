@@ -3,12 +3,12 @@ import { motion } from 'motion/react';
 import { Upgrades, SHIP_SKINS } from '../types';
 import { SynthAudio } from '../utils/audio';
 import { HapticFeedback } from '../utils/haptics';
-import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery, Tv, ShieldAlert } from 'lucide-react';
+import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery, ShieldAlert, Tv } from 'lucide-react';
 import { AdPlayerOverlay } from './AdPlayerOverlay';
 
 interface GameBoardProps {
   upgrades: Upgrades;
-  onGameOver: (score: number, scrapCollected: number, enemiesKilled: number, deathCause?: string, suggestedUpgrade?: string) => void;
+  onGameOver: (score: number, scrapCollected: number, enemiesKilled: number, bossesDefeatedThisRun?: number, deathCause?: string, suggestedUpgrade?: string) => void;
   onPause: () => void;
   paused: boolean;
   setPaused: (paused: boolean) => void;
@@ -68,6 +68,9 @@ interface Projectile {
   size: number;
   damage: number;
   fromPlayer: boolean;
+  weaponType?: 'plasma' | 'ion' | 'wave' | 'neutron' | 'tesla';
+  isPlasma?: boolean;
+  isIon?: boolean;
   isWave?: boolean;
   wavePhase?: number;
   waveFreq?: number;
@@ -75,6 +78,10 @@ interface Projectile {
   isTesla?: boolean;
   teslaPhase?: number;
   isNeutron?: boolean;
+  isSplinter?: boolean;
+  hitEnemies?: (number | string)[];
+  piercedCount?: number;
+  maxPierce?: number;
 }
 
 interface Collectible {
@@ -270,13 +277,13 @@ export default function GameBoard({
   const [tutStep, setTutStep] = useState(0);
   const [tutProgress, setTutProgress] = useState(0);
   const [tutPhaseCleared, setTutPhaseCleared] = useState(false);
-  const [isTutorialCollapsed, setIsTutorialCollapsed] = useState(false);
+  const [isTutorialCollapsed, setIsTutorialCollapsed] = useState(true);
 
   // Roguelite Pick-a-Buff choices overlay
   const [showingBuffChoice, setShowingBuffChoice] = useState(false);
   const [buffOptions, setBuffOptions] = useState<any[]>([]);
 
-  // Rewarded Video Ad Revive states
+  // Emergency Revive states
   const [showingRevivePrompt, setShowingRevivePrompt] = useState(false);
   const [playingReviveAd, setPlayingReviveAd] = useState(false);
   const [hasRevived, setHasRevived] = useState(false);
@@ -291,6 +298,8 @@ export default function GameBoard({
     tutorialStep: 0,
     tutorialProgressCount: 0,
     tutorialPhaseCleared: false,
+    tutShieldPicked: false,
+    tutDoublePicked: false,
     hasRevivedThisRun: false,
     empEnergy: 0,
     empMaxEnergy: 100,
@@ -370,7 +379,14 @@ export default function GameBoard({
     desperationTriggered: false,
     starterLoadout: null as 'balanced' | 'glass' | 'tank' | null,
     showingBuffChoice: false,
+    bossActive: false,
+    bossesDefeatedThisRun: 0,
   });
+
+  const updateBossActive = (active: boolean) => {
+    stateRef.current.bossActive = active;
+    setBossActive(active);
+  };
 
   // Keep upgrades sync'ed
   useEffect(() => {
@@ -549,16 +565,17 @@ export default function GameBoard({
     state.tutorialProgressCount = 0;
     state.tutorialPhaseCleared = false;
     setTutPhaseCleared(false);
+    state.enemies = [];
 
     if (state.tutorialStep === 0) {
       state.tutorialStep = 1;
       setTutStep(1);
-      // Spawn 3 static Target Orbs for shooting practice
+      // Spawn 3 static Target Orbs for shooting practice (nudged to y:180 to avoid overlay)
       for (let k = 0; k < 3; k++) {
         state.enemies.push({
           id: state.nextEnemyId++,
           x: 50 + k * 105,
-          y: 120,
+          y: 180,
           width: 32,
           height: 32,
           speed: 0,
@@ -574,11 +591,11 @@ export default function GameBoard({
     } else if (state.tutorialStep === 1) {
       state.tutorialStep = 2;
       setTutStep(2);
-      // Spawn 3 floating Amethyst Scraps
+      // Spawn 3 floating Amethyst Scraps (nudged to y:190)
       for (let k = 0; k < 3; k++) {
         state.collectibles.push({
-          x: 70 + k * 100,
-          y: 100,
+          x: 60 + k * 105,
+          y: 190,
           type: 'scrap',
           color: '#d946ef', // purple magenta
           size: 8,
@@ -588,14 +605,34 @@ export default function GameBoard({
     } else if (state.tutorialStep === 2) {
       state.tutorialStep = 3;
       setTutStep(3);
-      // Spawn powerups
+      state.tutShieldPicked = false;
+      state.tutDoublePicked = false;
+      // Spawn powerups (nudged to y:200)
       state.collectibles.push(
-        { x: 110, y: 130, type: 'heal', color: '#10b981', size: 9, pulse: 0 },
-        { x: 230, y: 130, type: 'double', color: '#3b82f6', size: 9, pulse: 0 }
+        { x: 100, y: 200, type: 'heal', color: '#10b981', size: 9, pulse: 0 },
+        { x: 260, y: 200, type: 'double', color: '#3b82f6', size: 9, pulse: 0 }
       );
     } else if (state.tutorialStep === 3) {
       state.tutorialStep = 4;
       setTutStep(4);
+      // Spawn 2 live-fire scout enemies that shoot back for Phase 4 combat challenge
+      for (let k = 0; k < 2; k++) {
+        state.enemies.push({
+          id: state.nextEnemyId++,
+          x: 80 + k * 160,
+          y: 170,
+          width: 32,
+          height: 32,
+          speed: 15,
+          type: 'scout',
+          color: '#f43f5e', // Hostile Red
+          health: 25,
+          maxHealth: 25,
+          shootCooldown: 0.8,
+          phase: k * 3,
+          phaseSpeed: 1.5
+        });
+      }
     } else if (state.tutorialStep === 4) {
       if (onTutorialComplete) {
         onTutorialComplete();
@@ -625,6 +662,58 @@ export default function GameBoard({
     };
   }, []);
 
+  // Dedicated Event Listeners Effect (Input handling and Window Resize)
+  useEffect(() => {
+    const resize = () => {
+      if (!containerRef.current || !canvasRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const w = rect.width || 360;
+      const h = rect.height || 640;
+      canvasRef.current.width = w;
+      canvasRef.current.height = h;
+      stateRef.current.width = w;
+      stateRef.current.height = h;
+
+      if (stateRef.current.player.x > w - 40) stateRef.current.player.x = w / 2;
+      if (stateRef.current.player.y > h - 60) stateRef.current.player.y = h - 100;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (stateRef.current.showingBuffChoice) {
+        if (['Escape', 'p', 'P'].includes(e.key)) return;
+      }
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        e.preventDefault();
+      }
+      stateRef.current.keys[e.key] = true;
+      stateRef.current.keys[e.code] = true;
+
+      if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+        onPause();
+      }
+
+      if (e.key === 'b' || e.key === 'B' || e.key === ' ' || e.code === 'Space') {
+        triggerEmpNova();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      stateRef.current.keys[e.key] = false;
+      stateRef.current.keys[e.code] = false;
+    };
+
+    window.addEventListener('resize', resize);
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    resize();
+
+    return () => {
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [onPause]);
+
   // Main Canvas Setup and Game Loop
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -640,7 +729,8 @@ export default function GameBoard({
       
       if (enemyType === 'boss') {
         // Boss killed! Chapter completed!
-        setBossActive(false);
+        updateBossActive(false);
+        stateRef.current.bossesDefeatedThisRun = (stateRef.current.bossesDefeatedThisRun || 0) + 1;
         const currentChapter = stateRef.current.storyChapter;
         setDialogueType('outro');
         setActiveDialogueLines(CHAPTER_DIALOGUES[currentChapter].outro);
@@ -679,55 +769,6 @@ export default function GameBoard({
         }
       }
     };
-
-    // Setup dimensions
-    const resize = () => {
-      if (!containerRef.current || !canvas) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const w = rect.width || 360;
-      const h = rect.height || 640;
-      canvas.width = w;
-      canvas.height = h;
-      stateRef.current.width = w;
-      stateRef.current.height = h;
-
-      // Adjust player boundaries safely
-      if (stateRef.current.player.x > w - 40) stateRef.current.player.x = w / 2;
-      if (stateRef.current.player.y > h - 60) stateRef.current.player.y = h - 100;
-    };
-
-    window.addEventListener('resize', resize);
-    resize();
-
-    // Keyboard handlers for keyboard movement & pause toggle
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (stateRef.current.showingBuffChoice) {
-        if (['Escape', 'p', 'P'].includes(e.key)) {
-          return;
-        }
-      }
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key) || ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
-        e.preventDefault();
-      }
-      stateRef.current.keys[e.key] = true;
-      stateRef.current.keys[e.code] = true;
-
-      if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
-        onPause();
-      }
-
-      if (e.key === 'b' || e.key === 'B' || e.key === ' ' || e.code === 'Space') {
-        triggerEmpNova();
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      stateRef.current.keys[e.key] = false;
-      stateRef.current.keys[e.code] = false;
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
 
     // Spawn initial particle cloud
     const createExplosion = (x: number, y: number, color: string, count = 12) => {
@@ -1057,138 +1098,143 @@ export default function GameBoard({
         const sizeMultiplier = isCrit ? 1.6 : 1.0;
 
         if (selectedWpn === 'ion') {
-          // ION PULSE SYSTEM
+          // ION PULSE SYSTEM (Emerald AOE heavy kinetic orb)
           if (currentWeaponType >= 4) {
             state.projectiles.push(
-              { x: player.x + player.width * 0.25, y: player.y, vx: -30, vy: -450, color: colorOverride || '#10b981', size: 8 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true },
-              { x: player.x + player.width * 0.75, y: player.y, vx: 30, vy: -450, color: colorOverride || '#10b981', size: 8 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true },
-              { x: player.x, y: player.y + 12, vx: -110, vy: -400, color: colorOverride || '#059669', size: 6 * sizeMultiplier, damage: 22 * damageMult, fromPlayer: true },
-              { x: player.x + player.width, y: player.y + 12, vx: 110, vy: -400, color: colorOverride || '#059669', size: 6 * sizeMultiplier, damage: 22 * damageMult, fromPlayer: true }
+              { x: player.x + player.width * 0.25, y: player.y, vx: -30, vy: -480, color: colorOverride || '#10b981', size: 8.5 * sizeMultiplier, damage: 32 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true },
+              { x: player.x + player.width * 0.75, y: player.y, vx: 30, vy: -480, color: colorOverride || '#10b981', size: 8.5 * sizeMultiplier, damage: 32 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true },
+              { x: player.x, y: player.y + 12, vx: -110, vy: -440, color: colorOverride || '#059669', size: 6.5 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true },
+              { x: player.x + player.width, y: player.y + 12, vx: 110, vy: -440, color: colorOverride || '#059669', size: 6.5 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true }
             );
             SynthAudio.playPowerShoot();
           } else if (currentWeaponType === 3) {
             state.projectiles.push(
-              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -450, color: colorOverride || '#10b981', size: 7.5 * sizeMultiplier, damage: 26 * damageMult, fromPlayer: true },
-              { x: player.x + player.width / 4, y: player.y + 10, vx: -80, vy: -420, color: colorOverride || '#059669', size: 5.5 * sizeMultiplier, damage: 20 * damageMult, fromPlayer: true },
-              { x: player.x + (player.width * 3) / 4, y: player.y + 10, vx: 80, vy: -420, color: colorOverride || '#059669', size: 5.5 * sizeMultiplier, damage: 20 * damageMult, fromPlayer: true }
+              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -480, color: colorOverride || '#10b981', size: 8 * sizeMultiplier, damage: 30 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true },
+              { x: player.x + player.width / 4, y: player.y + 10, vx: -80, vy: -450, color: colorOverride || '#059669', size: 6 * sizeMultiplier, damage: 22 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true },
+              { x: player.x + (player.width * 3) / 4, y: player.y + 10, vx: 80, vy: -450, color: colorOverride || '#059669', size: 6 * sizeMultiplier, damage: 22 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true }
             );
             SynthAudio.playPowerShoot();
           } else if (currentWeaponType === 2) {
             state.projectiles.push(
-              { x: player.x + player.width * 0.2, y: player.y, vx: 0, vy: -450, color: colorOverride || '#10b981', size: 7 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true },
-              { x: player.x + player.width * 0.8, y: player.y, vx: 0, vy: -450, color: colorOverride || '#10b981', size: 7 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true }
+              { x: player.x + player.width * 0.2, y: player.y, vx: 0, vy: -480, color: colorOverride || '#10b981', size: 7.5 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true },
+              { x: player.x + player.width * 0.8, y: player.y, vx: 0, vy: -480, color: colorOverride || '#10b981', size: 7.5 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true, weaponType: 'ion', isIon: true }
             );
             SynthAudio.playPowerShoot();
+          } else {
+            state.projectiles.push({
+              x: player.x + player.width / 2,
+              y: player.y,
+              vx: 0,
+              vy: -480,
+              color: colorOverride || '#10b981',
+              size: 9 * sizeMultiplier,
+              damage: 42 * damageMult,
+              fromPlayer: true,
+              weaponType: 'ion',
+              isIon: true
+            });
+            SynthAudio.playPowerShoot();
+          }
+        } else if (selectedWpn === 'wave') {
+          // WAVE BEAM SYSTEM (Purple sweeping crescent blade)
+          if (currentWeaponType >= 4) {
+            state.projectiles.push(
+              { x: player.x + player.width * 0.25, y: player.y, vx: -20, vy: -580, color: colorOverride || '#a855f7', size: 5.5 * sizeMultiplier, damage: 20 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: 0, waveAmp: 45, maxPierce: 2 },
+              { x: player.x + player.width * 0.75, y: player.y, vx: 20, vy: -580, color: colorOverride || '#a855f7', size: 5.5 * sizeMultiplier, damage: 20 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: Math.PI, waveAmp: 45, maxPierce: 2 },
+              { x: player.x, y: player.y + 12, vx: -130, vy: -530, color: colorOverride || '#c084fc', size: 4.5 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: Math.PI / 2, waveAmp: 30, maxPierce: 2 },
+              { x: player.x + player.width, y: player.y + 12, vx: 130, vy: -530, color: colorOverride || '#c084fc', size: 4.5 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: (Math.PI * 3) / 2, waveAmp: 30, maxPierce: 2 }
+            );
+            SynthAudio.playPowerShoot();
+          } else if (currentWeaponType === 3) {
+            state.projectiles.push(
+              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -580, color: colorOverride || '#a855f7', size: 5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: 0, waveAmp: 40, maxPierce: 2 },
+              { x: player.x + player.width / 4, y: player.y + 10, vx: -90, vy: -550, color: colorOverride || '#c084fc', size: 4 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: (Math.PI * 2) / 3, waveAmp: 25, maxPierce: 2 },
+              { x: player.x + (player.width * 3) / 4, y: player.y + 10, vx: 90, vy: -550, color: colorOverride || '#c084fc', size: 4 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: (Math.PI * 4) / 3, waveAmp: 25, maxPierce: 2 }
+            );
+            SynthAudio.playPowerShoot();
+          } else if (currentWeaponType === 2) {
+            state.projectiles.push(
+              { x: player.x + player.width * 0.2, y: player.y, vx: 0, vy: -580, color: colorOverride || '#a855f7', size: 5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: 0, waveAmp: 35, maxPierce: 2 },
+              { x: player.x + player.width * 0.8, y: player.y, vx: 0, vy: -580, color: colorOverride || '#a855f7', size: 5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'wave', isWave: true, wavePhase: Math.PI, waveAmp: 35, maxPierce: 2 }
+            );
+            SynthAudio.playShoot();
+          } else {
+            state.projectiles.push({
+              x: player.x + player.width / 2,
+              y: player.y,
+              vx: 0,
+              vy: -580,
+              color: colorOverride || '#a855f7',
+              size: 5.5 * sizeMultiplier,
+              damage: 25 * damageMult,
+              fromPlayer: true,
+              weaponType: 'wave',
+              isWave: true,
+              wavePhase: 0,
+              waveAmp: 40,
+              maxPierce: 2
+            });
+            SynthAudio.playShoot();
+          }
+        } else if (selectedWpn === 'neutron') {
+          // NEUTRON FLARE SYSTEM (Orange radioactive starburst flare cluster)
+          if (currentWeaponType >= 4) {
+            state.projectiles.push(
+              { x: player.x + player.width * 0.1, y: player.y + 10, vx: -100, vy: -420, color: colorOverride || '#f59e0b', size: 5 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true },
+              { x: player.x + player.width * 0.35, y: player.y, vx: -30, vy: -450, color: colorOverride || '#f97316', size: 6 * sizeMultiplier, damage: 32 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true },
+              { x: player.x + player.width * 0.65, y: player.y, vx: 30, vy: -450, color: colorOverride || '#f97316', size: 6 * sizeMultiplier, damage: 32 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true },
+              { x: player.x + player.width * 0.9, y: player.y + 10, vx: 100, vy: -420, color: colorOverride || '#f59e0b', size: 5 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true }
+            );
+            SynthAudio.playNeutronShoot();
+          } else if (currentWeaponType === 3) {
+            state.projectiles.push(
+              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -450, color: colorOverride || '#f97316', size: 6 * sizeMultiplier, damage: 36 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true },
+              { x: player.x + player.width / 4, y: player.y + 8, vx: -60, vy: -420, color: colorOverride || '#f59e0b', size: 5 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true },
+              { x: player.x + (player.width * 3) / 4, y: player.y + 8, vx: 60, vy: -420, color: colorOverride || '#f59e0b', size: 5 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true }
+            );
+            SynthAudio.playNeutronShoot();
+          } else if (currentWeaponType === 2) {
+            state.projectiles.push(
+              { x: player.x + player.width * 0.2, y: player.y, vx: -20, vy: -450, color: colorOverride || '#f59e0b', size: 6 * sizeMultiplier, damage: 38 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true },
+              { x: player.x + player.width * 0.8, y: player.y, vx: 20, vy: -450, color: colorOverride || '#f59e0b', size: 6 * sizeMultiplier, damage: 38 * damageMult, fromPlayer: true, weaponType: 'neutron', isNeutron: true }
+            );
+            SynthAudio.playNeutronShoot();
           } else {
             state.projectiles.push({
               x: player.x + player.width / 2,
               y: player.y,
               vx: 0,
               vy: -450,
-              color: colorOverride || '#10b981',
-              size: 8.5 * sizeMultiplier,
-              damage: 38 * damageMult,
-              fromPlayer: true
-            });
-            SynthAudio.playPowerShoot();
-          }
-        } else if (selectedWpn === 'wave') {
-          // WAVE BEAM SYSTEM
-          if (currentWeaponType >= 4) {
-            state.projectiles.push(
-              { x: player.x + player.width * 0.25, y: player.y, vx: -20, vy: -550, color: colorOverride || '#a855f7', size: 5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, isWave: true, wavePhase: 0, waveAmp: 45 },
-              { x: player.x + player.width * 0.75, y: player.y, vx: 20, vy: -550, color: colorOverride || '#a855f7', size: 5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, isWave: true, wavePhase: Math.PI, waveAmp: 45 },
-              { x: player.x, y: player.y + 12, vx: -130, vy: -500, color: colorOverride || '#c084fc', size: 4 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, isWave: true, wavePhase: Math.PI / 2, waveAmp: 30 },
-              { x: player.x + player.width, y: player.y + 12, vx: 130, vy: -500, color: colorOverride || '#c084fc', size: 4 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, isWave: true, wavePhase: (Math.PI * 3) / 2, waveAmp: 30 }
-            );
-            SynthAudio.playPowerShoot();
-          } else if (currentWeaponType === 3) {
-            state.projectiles.push(
-              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -550, color: colorOverride || '#a855f7', size: 4.5 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true, isWave: true, wavePhase: 0, waveAmp: 40 },
-              { x: player.x + player.width / 4, y: player.y + 10, vx: -90, vy: -520, color: colorOverride || '#c084fc', size: 3.5 * sizeMultiplier, damage: 13 * damageMult, fromPlayer: true, isWave: true, wavePhase: (Math.PI * 2) / 3, waveAmp: 25 },
-              { x: player.x + (player.width * 3) / 4, y: player.y + 10, vx: 90, vy: -520, color: colorOverride || '#c084fc', size: 3.5 * sizeMultiplier, damage: 13 * damageMult, fromPlayer: true, isWave: true, wavePhase: (Math.PI * 4) / 3, waveAmp: 25 }
-            );
-            SynthAudio.playPowerShoot();
-          } else if (currentWeaponType === 2) {
-            state.projectiles.push(
-              { x: player.x + player.width * 0.2, y: player.y, vx: 0, vy: -550, color: colorOverride || '#a855f7', size: 4.5 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true, isWave: true, wavePhase: 0, waveAmp: 35 },
-              { x: player.x + player.width * 0.8, y: player.y, vx: 0, vy: -550, color: colorOverride || '#a855f7', size: 4.5 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true, isWave: true, wavePhase: Math.PI, waveAmp: 35 }
-            );
-            SynthAudio.playShoot();
-          } else {
-            state.projectiles.push({
-              x: player.x + player.width / 2,
-              y: player.y,
-              vx: 0,
-              vy: -550,
-              color: colorOverride || '#a855f7',
-              size: 5 * sizeMultiplier,
-              damage: 22 * damageMult,
-              fromPlayer: true,
-              isWave: true,
-              wavePhase: 0,
-              waveAmp: 40
-            });
-            SynthAudio.playShoot();
-          }
-        } else if (selectedWpn === 'neutron') {
-          // NEUTRON FLARE SYSTEM (Orange heavy spliter)
-          if (currentWeaponType >= 4) {
-            state.projectiles.push(
-              { x: player.x + player.width * 0.1, y: player.y + 10, vx: -100, vy: -380, color: colorOverride || '#f59e0b', size: 4.5 * sizeMultiplier, damage: 22 * damageMult, fromPlayer: true, isNeutron: true },
-              { x: player.x + player.width * 0.35, y: player.y, vx: -30, vy: -420, color: colorOverride || '#f97316', size: 5.5 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true, isNeutron: true },
-              { x: player.x + player.width * 0.65, y: player.y, vx: 30, vy: -420, color: colorOverride || '#f97316', size: 5.5 * sizeMultiplier, damage: 28 * damageMult, fromPlayer: true, isNeutron: true },
-              { x: player.x + player.width * 0.9, y: player.y + 10, vx: 100, vy: -380, color: colorOverride || '#f59e0b', size: 4.5 * sizeMultiplier, damage: 22 * damageMult, fromPlayer: true, isNeutron: true }
-            );
-            SynthAudio.playNeutronShoot();
-          } else if (currentWeaponType === 3) {
-            state.projectiles.push(
-              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -420, color: colorOverride || '#f97316', size: 5.5 * sizeMultiplier, damage: 32 * damageMult, fromPlayer: true, isNeutron: true },
-              { x: player.x + player.width / 4, y: player.y + 8, vx: -60, vy: -400, color: colorOverride || '#f59e0b', size: 4.5 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true, isNeutron: true },
-              { x: player.x + (player.width * 3) / 4, y: player.y + 8, vx: 60, vy: -400, color: colorOverride || '#f59e0b', size: 4.5 * sizeMultiplier, damage: 25 * damageMult, fromPlayer: true, isNeutron: true }
-            );
-            SynthAudio.playNeutronShoot();
-          } else if (currentWeaponType === 2) {
-            state.projectiles.push(
-              { x: player.x + player.width * 0.2, y: player.y, vx: -20, vy: -420, color: colorOverride || '#f59e0b', size: 5.5 * sizeMultiplier, damage: 35 * damageMult, fromPlayer: true, isNeutron: true },
-              { x: player.x + player.width * 0.8, y: player.y, vx: 20, vy: -420, color: colorOverride || '#f59e0b', size: 5.5 * sizeMultiplier, damage: 35 * damageMult, fromPlayer: true, isNeutron: true }
-            );
-            SynthAudio.playNeutronShoot();
-          } else {
-            state.projectiles.push({
-              x: player.x + player.width / 2,
-              y: player.y,
-              vx: 0,
-              vy: -420,
               color: colorOverride || '#f59e0b',
-              size: 6.5 * sizeMultiplier,
-              damage: 45 * damageMult,
+              size: 7 * sizeMultiplier,
+              damage: 52 * damageMult,
               fromPlayer: true,
+              weaponType: 'neutron',
               isNeutron: true
             });
             SynthAudio.playNeutronShoot();
           }
         } else if (selectedWpn === 'tesla') {
-          // TESLA VOLT SYSTEM (Pink electrical chain lightning)
+          // TESLA VOLT SYSTEM (Pink/Cyber blue crackling electric lightning bolt)
           if (currentWeaponType >= 4) {
             state.projectiles.push(
-              { x: player.x + player.width * 0.15, y: player.y + 10, vx: -110, vy: -650, color: colorOverride || '#db2777', size: 2.5 * sizeMultiplier, damage: 12 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: 0 },
-              { x: player.x + player.width * 0.38, y: player.y, vx: -30, vy: -720, color: colorOverride || '#f472b6', size: 3 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: Math.PI / 3 },
-              { x: player.x + player.width * 0.62, y: player.y, vx: 30, vy: -720, color: colorOverride || '#f472b6', size: 3 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: (2 * Math.PI) / 3 },
-              { x: player.x + player.width * 0.85, y: player.y + 10, vx: 110, vy: -650, color: colorOverride || '#db2777', size: 2.5 * sizeMultiplier, damage: 12 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: Math.PI }
+              { x: player.x + player.width * 0.15, y: player.y + 10, vx: -110, vy: -750, color: colorOverride || '#db2777', size: 3 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: 0 },
+              { x: player.x + player.width * 0.38, y: player.y, vx: -30, vy: -820, color: colorOverride || '#38bdf8', size: 3.5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: Math.PI / 3 },
+              { x: player.x + player.width * 0.62, y: player.y, vx: 30, vy: -820, color: colorOverride || '#38bdf8', size: 3.5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: (2 * Math.PI) / 3 },
+              { x: player.x + player.width * 0.85, y: player.y + 10, vx: 110, vy: -750, color: colorOverride || '#db2777', size: 3 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: Math.PI }
             );
             SynthAudio.playTeslaShoot();
           } else if (currentWeaponType === 3) {
             state.projectiles.push(
-              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -720, color: colorOverride || '#f472b6', size: 3 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: 0 },
-              { x: player.x + player.width / 5, y: player.y + 8, vx: -70, vy: -680, color: colorOverride || '#db2777', size: 2.5 * sizeMultiplier, damage: 12 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: Math.PI / 2 },
-              { x: player.x + (player.width * 4) / 5, y: player.y + 8, vx: 70, vy: -680, color: colorOverride || '#db2777', size: 2.5 * sizeMultiplier, damage: 12 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: -Math.PI / 2 }
+              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -820, color: colorOverride || '#38bdf8', size: 3.5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: 0 },
+              { x: player.x + player.width / 5, y: player.y + 8, vx: -70, vy: -780, color: colorOverride || '#ec4899', size: 3 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: Math.PI / 2 },
+              { x: player.x + (player.width * 4) / 5, y: player.y + 8, vx: 70, vy: -780, color: colorOverride || '#ec4899', size: 3 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: -Math.PI / 2 }
             );
             SynthAudio.playTeslaShoot();
           } else if (currentWeaponType === 2) {
             state.projectiles.push(
-              { x: player.x + player.width * 0.25, y: player.y, vx: -15, vy: -700, color: colorOverride || '#ec4899', size: 3 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: 0 },
-              { x: player.x + player.width * 0.75, y: player.y, vx: 15, vy: -700, color: colorOverride || '#ec4899', size: 3 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true, isTesla: true, teslaPhase: Math.PI }
+              { x: player.x + player.width * 0.25, y: player.y, vx: -15, vy: -800, color: colorOverride || '#ec4899', size: 3.5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: 0 },
+              { x: player.x + player.width * 0.75, y: player.y, vx: 15, vy: -800, color: colorOverride || '#ec4899', size: 3.5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'tesla', isTesla: true, teslaPhase: Math.PI }
             );
             SynthAudio.playTeslaShoot();
           } else {
@@ -1196,37 +1242,38 @@ export default function GameBoard({
               x: player.x + player.width / 2,
               y: player.y,
               vx: 0,
-              vy: -700,
+              vy: -800,
               color: colorOverride || '#ec4899',
-              size: 3.5 * sizeMultiplier,
-              damage: 22 * damageMult,
+              size: 4 * sizeMultiplier,
+              damage: 24 * damageMult,
               fromPlayer: true,
+              weaponType: 'tesla',
               isTesla: true,
               teslaPhase: 0
             });
             SynthAudio.playTeslaShoot();
           }
         } else {
-          // PLASMA LASER SYSTEM (Default)
+          // PLASMA LASER SYSTEM (Default - Cyan / Pink High-Speed Capsule Needle)
           if (currentWeaponType >= 4) {
             state.projectiles.push(
-              { x: player.x + player.width * 0.25, y: player.y, vx: -40, vy: -650, color: colorOverride || '#ec4899', size: 4.5 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true },
-              { x: player.x + player.width * 0.75, y: player.y, vx: 40, vy: -650, color: colorOverride || '#ec4899', size: 4.5 * sizeMultiplier, damage: 16 * damageMult, fromPlayer: true },
-              { x: player.x, y: player.y + 12, vx: -160, vy: -580, color: colorOverride || '#f43f5e', size: 3.5 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true },
-              { x: player.x + player.width, y: player.y + 12, vx: 160, vy: -580, color: colorOverride || '#f43f5e', size: 3.5 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true }
+              { x: player.x + player.width * 0.25, y: player.y, vx: -40, vy: -740, color: colorOverride || '#00f0ff', size: 4.5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true },
+              { x: player.x + player.width * 0.75, y: player.y, vx: 40, vy: -740, color: colorOverride || '#00f0ff', size: 4.5 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true },
+              { x: player.x, y: player.y + 12, vx: -160, vy: -680, color: colorOverride || '#ec4899', size: 3.5 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true },
+              { x: player.x + player.width, y: player.y + 12, vx: 160, vy: -680, color: colorOverride || '#ec4899', size: 3.5 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true }
             );
             SynthAudio.playPowerShoot();
           } else if (currentWeaponType === 3) {
             state.projectiles.push(
-              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -650, color: colorOverride || '#3b82f6', size: 4 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true },
-              { x: player.x + player.width / 4, y: player.y + 10, vx: -120, vy: -600, color: colorOverride || '#60a5fa', size: 3 * sizeMultiplier, damage: 12 * damageMult, fromPlayer: true },
-              { x: player.x + (player.width * 3) / 4, y: player.y + 10, vx: 120, vy: -600, color: colorOverride || '#60a5fa', size: 3 * sizeMultiplier, damage: 12 * damageMult, fromPlayer: true }
+              { x: player.x + player.width / 2, y: player.y, vx: 0, vy: -740, color: colorOverride || '#00f0ff', size: 4 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true },
+              { x: player.x + player.width / 4, y: player.y + 10, vx: -120, vy: -700, color: colorOverride || '#38bdf8', size: 3.5 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true },
+              { x: player.x + (player.width * 3) / 4, y: player.y + 10, vx: 120, vy: -700, color: colorOverride || '#38bdf8', size: 3.5 * sizeMultiplier, damage: 14 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true }
             );
             SynthAudio.playPowerShoot();
           } else if (currentWeaponType === 2) {
             state.projectiles.push(
-              { x: player.x + player.width * 0.2, y: player.y, vx: 0, vy: -650, color: colorOverride || player.color, size: 3.5 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true },
-              { x: player.x + player.width * 0.8, y: player.y, vx: 0, vy: -650, color: colorOverride || player.color, size: 3.5 * sizeMultiplier, damage: 15 * damageMult, fromPlayer: true }
+              { x: player.x + player.width * 0.2, y: player.y, vx: 0, vy: -740, color: colorOverride || player.color, size: 4 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true },
+              { x: player.x + player.width * 0.8, y: player.y, vx: 0, vy: -740, color: colorOverride || player.color, size: 4 * sizeMultiplier, damage: 18 * damageMult, fromPlayer: true, weaponType: 'plasma', isPlasma: true }
             );
             SynthAudio.playShoot();
           } else {
@@ -1234,11 +1281,13 @@ export default function GameBoard({
               x: player.x + player.width / 2,
               y: player.y,
               vx: 0,
-              vy: -650,
+              vy: -740,
               color: colorOverride || player.color,
-              size: 4 * sizeMultiplier,
-              damage: 20 * damageMult,
-              fromPlayer: true
+              size: 4.5 * sizeMultiplier,
+              damage: 24 * damageMult,
+              fromPlayer: true,
+              weaponType: 'plasma',
+              isPlasma: true
             });
             SynthAudio.playShoot();
           }
@@ -1440,33 +1489,42 @@ export default function GameBoard({
       // 3. SPAWN ENEMIES
       if (isTutorial) {
         // Handle Tutorial step-by-step state machine with manual progression
-        const player = state.player;
         if (state.tutorialStep === 0) {
-          // Movement training: trigger step 1 once the player moves away from the initial location
-          if (player.x !== 180 || player.y !== 500) {
-            state.tutorialProgressCount += dt;
-            if (state.tutorialProgressCount >= 1.2) {
-              state.tutorialPhaseCleared = true;
-            }
+          // Phase 0: Maneuvering & dodging hazards practice
+          if (state.enemies.length === 0 && !state.tutorialPhaseCleared) {
+            state.enemies.push(
+              { id: state.nextEnemyId++, x: 60, y: 200, width: 34, height: 34, speed: 15, type: 'asteroid', color: '#f59e0b', health: 9999, maxHealth: 9999, shootCooldown: 99999, phase: 0, phaseSpeed: 1.0 },
+              { id: state.nextEnemyId++, x: 260, y: 260, width: 34, height: 34, speed: 15, type: 'asteroid', color: '#f59e0b', health: 9999, maxHealth: 9999, shootCooldown: 99999, phase: 2, phaseSpeed: 1.0 },
+              { id: state.nextEnemyId++, x: 160, y: 320, width: 34, height: 34, speed: 15, type: 'asteroid', color: '#f59e0b', health: 9999, maxHealth: 9999, shootCooldown: 99999, phase: 4, phaseSpeed: 1.0 }
+            );
+          }
+          state.tutorialProgressCount += dt;
+          if (state.tutorialProgressCount >= 3.5) {
+            state.tutorialPhaseCleared = true;
           }
         } else if (state.tutorialStep === 1) {
-          // Shooting practice: Advance to salvage once all targets are cleared
+          // Phase 1: Target practice - advance once all 3 target orbs are destroyed
           if (state.enemies.length === 0) {
             state.tutorialPhaseCleared = true;
           }
         } else if (state.tutorialStep === 2) {
-          // Salvage practice: Advance to upgrades once they harvest 3 scraps
+          // Phase 2: Salvage practice - advance once 3 scraps collected
           if (state.tutorialProgressCount >= 3) {
             state.tutorialPhaseCleared = true;
           }
         } else if (state.tutorialStep === 3) {
-          // Power-up training: Advance if they pick up items
-          if (player.powerups.doubleLaser > 0 || state.shield > 100 || state.tutorialProgressCount >= 1) {
+          // Phase 3: Power-up training - require BOTH shield core AND double laser pickups
+          const count = (state.tutShieldPicked ? 1 : 0) + (state.tutDoublePicked ? 1 : 0);
+          state.tutorialProgressCount = count;
+          if (state.tutShieldPicked && state.tutDoublePicked) {
             state.tutorialPhaseCleared = true;
           }
         } else if (state.tutorialStep === 4) {
-          // Graduation phase: wait for manual click to complete
-          state.tutorialPhaseCleared = true;
+          // Phase 4: Live-fire combat challenge - clear once enemies are destroyed OR 5s under fire
+          state.tutorialProgressCount += dt;
+          if (state.enemies.length === 0 || state.tutorialProgressCount >= 5.0) {
+            state.tutorialPhaseCleared = true;
+          }
         }
       } else {
         if (state.storyMode === 'story') {
@@ -1565,7 +1623,7 @@ export default function GameBoard({
                 });
                 
                 setBossName(bName);
-                setBossActive(true);
+                updateBossActive(true);
                 setBossHealthPercent(100);
               }
             }
@@ -1733,7 +1791,7 @@ export default function GameBoard({
             });
             
             setBossName(finalName);
-            setBossActive(true);
+            updateBossActive(true);
             setBossHealthPercent(100);
           }
         }
@@ -1741,8 +1799,8 @@ export default function GameBoard({
 
       // 4. UPDATE ENEMIES
       const bossEnemy = state.enemies.find(e => e.type === 'boss');
-      if (!bossEnemy && bossActive) {
-        setBossActive(false);
+      if (!bossEnemy && stateRef.current.bossActive) {
+        updateBossActive(false);
       }
 
       state.enemies = state.enemies.filter(enemy => {
@@ -2412,7 +2470,8 @@ export default function GameBoard({
               setScore(state.score);
               setScrap(state.scrap);
               SynthAudio.playExplosion();
-              setBossActive(false);
+              updateBossActive(false);
+              stateRef.current.bossesDefeatedThisRun = (stateRef.current.bossesDefeatedThisRun || 0) + 1;
               return false;
             }
           }
@@ -2442,18 +2501,157 @@ export default function GameBoard({
           effectiveX = proj.x + Math.sin(proj.teslaPhase) * 16;
         }
 
-        // Draw bullet glowing
-        ctx.fillStyle = proj.color;
-        ctx.shadowBlur = 4;
+        // Draw distinct weapon projectile visual shapes
+        ctx.shadowBlur = 8;
         ctx.shadowColor = proj.color;
-        ctx.beginPath();
+        
         if (state.storyMode === 'story' && !proj.fromPlayer) {
-          // Draw high-yield glowing plasma egg (ellipse)
+          // Enemy high-yield glowing plasma egg
+          ctx.fillStyle = proj.color;
+          ctx.beginPath();
           ctx.ellipse(effectiveX, proj.y, proj.size * 0.9, proj.size * 1.35, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (proj.fromPlayer) {
+          const timestamp = performance.now();
+          
+          if (proj.weaponType === 'ion' || proj.isIon) {
+            // ION PULSE: Concentric emerald pulsing orb with rotating orbital spark
+            ctx.save();
+            ctx.strokeStyle = proj.color;
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.arc(effectiveX, proj.y, proj.size * 1.25, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.fillStyle = proj.color;
+            ctx.beginPath();
+            ctx.arc(effectiveX, proj.y, proj.size * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Hot mint inner core
+            ctx.fillStyle = '#a7f3d0';
+            ctx.beginPath();
+            ctx.arc(effectiveX, proj.y, proj.size * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Rotating orbital spark
+            const ionOrbitAngle = (timestamp / 80) + (proj.x * 0.1);
+            const ox = effectiveX + Math.cos(ionOrbitAngle) * (proj.size * 1.35);
+            const oy = proj.y + Math.sin(ionOrbitAngle) * (proj.size * 0.7);
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(ox, oy, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          } else if (proj.weaponType === 'wave' || proj.isWave) {
+            // WAVE BEAM: Horizontal Glowing Neon Crescent Blade
+            ctx.save();
+            ctx.translate(effectiveX, proj.y);
+            const slope = Math.cos(proj.wavePhase || 0) * 0.35;
+            ctx.rotate(slope);
+            
+            ctx.fillStyle = proj.color;
+            const wWidth = proj.size * 4.2;
+            const wHeight = proj.size * 2.2;
+            ctx.beginPath();
+            ctx.moveTo(-wWidth / 2, 0);
+            ctx.quadraticCurveTo(0, -wHeight, wWidth / 2, 0);
+            ctx.quadraticCurveTo(0, -wHeight * 0.3, -wWidth / 2, 0);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = '#f472b6';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-wWidth * 0.35, -wHeight * 0.1);
+            ctx.quadraticCurveTo(0, -wHeight * 0.8, wWidth * 0.35, -wHeight * 0.1);
+            ctx.stroke();
+            ctx.restore();
+          } else if (proj.weaponType === 'neutron' || proj.isNeutron) {
+            // NEUTRON FLARE: Flaming 8-point starburst diamond flare
+            ctx.save();
+            ctx.translate(effectiveX, proj.y);
+            const flareRot = (timestamp / 120) + (proj.x * 0.05);
+            ctx.rotate(flareRot);
+            ctx.fillStyle = proj.color;
+
+            const points = 8;
+            const outerR = proj.isSplinter ? proj.size * 1.4 : proj.size * 2.2;
+            const innerR = outerR * 0.4;
+            ctx.beginPath();
+            for (let k = 0; k < points * 2; k++) {
+              const r = k % 2 === 0 ? outerR : innerR;
+              const a = (k * Math.PI) / points;
+              const px = Math.cos(a) * r;
+              const py = Math.sin(a) * r;
+              if (k === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = '#ffedd5';
+            ctx.beginPath();
+            ctx.arc(0, 0, innerR * 0.75, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          } else if (proj.weaponType === 'tesla' || proj.isTesla) {
+            // TESLA VOLT: Crackling multi-vertex zigzag electric lightning bolt
+            ctx.save();
+            ctx.strokeStyle = proj.color;
+            ctx.lineWidth = proj.size >= 3.5 ? 2.5 : 1.8;
+
+            const boltAngle = Math.atan2(proj.vy, proj.vx);
+            const len = proj.size * 5.5;
+            const endX = effectiveX - Math.cos(boltAngle) * len;
+            const endY = proj.y - Math.sin(boltAngle) * len;
+
+            ctx.beginPath();
+            ctx.moveTo(effectiveX, proj.y);
+            const segs = 3;
+            for (let s = 1; s < segs; s++) {
+              const ratio = s / segs;
+              const interpX = effectiveX + (endX - effectiveX) * ratio;
+              const interpY = proj.y + (endY - proj.y) * ratio;
+              const perpX = -Math.sin(boltAngle) * ((Math.random() - 0.5) * 8);
+              const perpY = Math.cos(boltAngle) * ((Math.random() - 0.5) * 8);
+              ctx.lineTo(interpX + perpX, interpY + perpY);
+            }
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(effectiveX, proj.y, proj.size * 0.75, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          } else {
+            // PLASMA LASER: Sleek elongated neon capsule with white core
+            ctx.save();
+            ctx.translate(effectiveX, proj.y);
+            const angle = Math.atan2(proj.vy, proj.vx) + Math.PI / 2;
+            ctx.rotate(angle);
+
+            ctx.fillStyle = proj.color;
+            const length = proj.size * 3.8;
+            const width = proj.size * 1.25;
+            ctx.beginPath();
+            ctx.roundRect(-width / 2, -length / 2, width, length, width / 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.roundRect(-width * 0.25, -length * 0.4, width * 0.5, length * 0.8, width * 0.25);
+            ctx.fill();
+            ctx.restore();
+          }
         } else {
+          // Standard enemy bullet
+          ctx.fillStyle = proj.color;
+          ctx.beginPath();
           ctx.arc(effectiveX, proj.y, proj.size, 0, Math.PI * 2);
+          ctx.fill();
         }
-        ctx.fill();
         ctx.shadowBlur = 0;
 
         // Player laser vs Enemies
@@ -2524,12 +2722,49 @@ export default function GameBoard({
                 enemy.health -= proj.damage;
               }
 
-              if (proj.isNeutron && proj.size > 3) {
-                // Split on impact with enemy!
+              // Weapon-specific impact effects
+              if (proj.weaponType === 'ion' || proj.isIon) {
+                // Ion Shockwave Burst: 50% splash damage to nearby hostiles
+                createExplosion(effectiveX, proj.y, '#10b981', 14);
+                for (let j = 0; j < state.enemies.length; j++) {
+                  const other = state.enemies[j];
+                  if (other !== enemy) {
+                    const dist = Math.hypot((other.x + other.width / 2) - effectiveX, (other.y + other.height / 2) - proj.y);
+                    if (dist < 48) {
+                      other.health -= proj.damage * 0.5;
+                      createExplosion(other.x + other.width / 2, other.y + other.height / 2, '#34d399', 3);
+                    }
+                  }
+                }
+              }
+
+              if ((proj.weaponType === 'neutron' || proj.isNeutron) && !proj.isSplinter) {
+                // Cluster Splinter Detonation: 3 ember splinters fan out
                 state.projectiles.push(
-                  { x: effectiveX, y: proj.y - 12, vx: -120, vy: -380, color: '#f59e0b', size: 2.5, damage: proj.damage * 0.45, fromPlayer: true },
-                  { x: effectiveX, y: proj.y - 12, vx: 120, vy: -380, color: '#f59e0b', size: 2.5, damage: proj.damage * 0.45, fromPlayer: true }
+                  { x: effectiveX, y: proj.y - 8, vx: -130, vy: -360, color: '#f59e0b', size: 2.8, damage: proj.damage * 0.45, fromPlayer: true, weaponType: 'neutron', isNeutron: true, isSplinter: true },
+                  { x: effectiveX, y: proj.y - 12, vx: 0, vy: -400, color: '#f97316', size: 2.8, damage: proj.damage * 0.45, fromPlayer: true, weaponType: 'neutron', isNeutron: true, isSplinter: true },
+                  { x: effectiveX, y: proj.y - 8, vx: 130, vy: -360, color: '#f59e0b', size: 2.8, damage: proj.damage * 0.45, fromPlayer: true, weaponType: 'neutron', isNeutron: true, isSplinter: true }
                 );
+              }
+
+              if (proj.weaponType === 'tesla' || proj.isTesla) {
+                // Chain Lightning Arc to nearest secondary enemy within 160px
+                let nearestSec: any = null;
+                let minDist = 160;
+                for (let j = 0; j < state.enemies.length; j++) {
+                  const other = state.enemies[j];
+                  if (other !== enemy) {
+                    const dist = Math.hypot((other.x + other.width / 2) - effectiveX, (other.y + other.height / 2) - proj.y);
+                    if (dist < minDist) {
+                      minDist = dist;
+                      nearestSec = other;
+                    }
+                  }
+                }
+                if (nearestSec) {
+                  nearestSec.health -= proj.damage * 0.7;
+                  createExplosion(nearestSec.x + nearestSec.width / 2, nearestSec.y + nearestSec.height / 2, '#38bdf8', 6);
+                }
               }
               
               if (enemy.health <= 0) {
@@ -2561,7 +2796,8 @@ export default function GameBoard({
                 if (enemy.type === 'boss') {
                   state.scrap += 25;
                   setScrap(state.scrap);
-                  setBossActive(false);
+                  updateBossActive(false);
+                  stateRef.current.bossesDefeatedThisRun = (stateRef.current.bossesDefeatedThisRun || 0) + 1;
                   state.bossCooldownTimer = 75; // 75 seconds of peace between bosses
                   
                   // Trigger Roguelite pick-a-buff overlay!
@@ -2587,11 +2823,13 @@ export default function GameBoard({
                 state.enemies.splice(i, 1);
               }
 
-              // Apply Pierce Bonus
+              // Apply Pierce Bonus (Wave beam has inherent 2-pierce + roguelite bonus)
               proj.hitEnemies.push(enemyId);
-              const pierceBonus = state.rogueliteBuffs?.laserPierceBonus || 0;
+              const isWaveWeapon = proj.weaponType === 'wave' || proj.isWave;
+              const baseMaxPierce = isWaveWeapon ? (proj.maxPierce || 2) : 0;
+              const totalAllowedPierce = baseMaxPierce + (state.rogueliteBuffs?.laserPierceBonus || 0);
               proj.piercedCount = proj.piercedCount || 0;
-              if (proj.piercedCount < pierceBonus) {
+              if (proj.piercedCount < totalAllowedPierce) {
                 proj.piercedCount++;
                 continue; // Skip bullet deletion, let it pierce!
               }
@@ -2902,6 +3140,9 @@ export default function GameBoard({
             SynthAudio.playCollect();
             HapticFeedback.tap();
           } else if (item.type === 'heal') {
+            if (isTutorial && state.tutorialStep === 3) {
+              state.tutShieldPicked = true;
+            }
             state.shield = Math.min(state.maxShield, state.shield + 25);
             setShield(state.shield);
             SynthAudio.playPowerup();
@@ -2920,6 +3161,9 @@ export default function GameBoard({
             SynthAudio.playPowerup();
             HapticFeedback.medium();
           } else if (item.type === 'double') {
+            if (isTutorial && state.tutorialStep === 3) {
+              state.tutDoublePicked = true;
+            }
             player.powerups.doubleLaser = 10.0; // 10s double shots
             setDoubleDuration(10);
             SynthAudio.playPowerup();
@@ -3292,7 +3536,7 @@ export default function GameBoard({
           return;
         } else {
           SynthAudio.playGameOver();
-          onGameOver(Math.round(state.score), state.scrap, state.enemiesKilled);
+          onGameOver(Math.round(state.score), state.scrap, state.enemiesKilled, state.bossesDefeatedThisRun || 0);
           return;
         }
       }
@@ -3305,11 +3549,8 @@ export default function GameBoard({
     return () => {
       isMounted = false;
       cancelAnimationFrame(animId);
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [paused, upgrades, bossActive, musicOn, showingRevivePrompt]);
+  }, [paused, showingRevivePrompt]);
 
   // Touch and Mouse Move Drag controls - delta movement to avoid finger blocking the ship
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
@@ -3566,69 +3807,72 @@ export default function GameBoard({
       {/* FLIGHT ACADEMY TUTORIAL DIALOG */}
       {isTutorial && isTutorialCollapsed && (
         <motion.div
-          drag
-          dragConstraints={containerRef}
-          dragMomentum={false}
-          dragElastic={0.1}
-          initial={{ opacity: 0, y: -10 }}
+          initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="absolute top-18 right-4 left-4 md:left-auto md:right-4 md:w-[260px] bg-slate-950/90 border border-cyan-500/40 backdrop-blur-md rounded-lg py-1.5 px-3 z-30 shadow-[0_0_15px_rgba(6,182,212,0.2)] flex justify-between items-center cursor-grab active:cursor-grabbing select-none"
+          className="absolute top-16 right-3 left-3 sm:left-auto sm:right-4 sm:w-[320px] bg-slate-950/95 border-2 border-cyan-500/50 backdrop-blur-md rounded-xl py-1.5 px-3 z-30 shadow-[0_0_20px_rgba(6,182,212,0.3)] flex justify-between items-center select-none pointer-events-auto"
         >
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-2 w-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
             </span>
-            <span className="text-[10px] text-cyan-400 font-mono font-bold uppercase tracking-wider">
-              ACADEMY PILOT PHASE {tutStep + 1}/5
-            </span>
+            <div className="flex flex-col min-w-0">
+              <span className="text-[10px] text-cyan-400 font-mono font-black uppercase tracking-wider truncate">
+                PHASE {tutStep + 1}/5: {
+                  tutStep === 0 ? "MANEUVER & DODGE" :
+                  tutStep === 1 ? "TARGET PRACTICE" :
+                  tutStep === 2 ? "SCRAP HARVEST" :
+                  tutStep === 3 ? "POWER-UPS" : "LIVE COMBAT"
+                }
+              </span>
+              <span className="text-[8px] text-slate-400 font-mono truncate">
+                {tutPhaseCleared ? "✓ PHASE CLEARED! TAP NEXT" : "OBJECTIVE IN PROGRESS..."}
+              </span>
+            </div>
           </div>
-          <button 
-            onClick={() => setIsTutorialCollapsed(false)}
-            className="text-[9px] bg-cyan-950/60 border border-cyan-500/40 text-cyan-300 hover:bg-cyan-900/60 transition px-2 py-0.5 rounded font-mono font-bold uppercase pointer-events-auto"
-          >
-            EXPAND GUIDE
-          </button>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {tutPhaseCleared ? (
+              <button 
+                onClick={advanceTutorialStep}
+                className="text-[9px] bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 hover:from-cyan-400 hover:to-teal-300 transition px-2.5 py-1 rounded font-mono font-black uppercase shadow-[0_0_10px_rgba(6,182,212,0.4)] pointer-events-auto animate-pulse flex items-center gap-1 cursor-pointer"
+              >
+                <span>NEXT PHASE</span>
+                <span>▸</span>
+              </button>
+            ) : (
+              <button 
+                onClick={() => setIsTutorialCollapsed(false)}
+                className="text-[9px] bg-slate-900 border border-cyan-500/40 text-cyan-300 hover:bg-slate-800 transition px-2 py-1 rounded font-mono font-bold uppercase pointer-events-auto cursor-pointer"
+              >
+                GUIDE 📖
+              </button>
+            )}
+          </div>
         </motion.div>
       )}
 
       {isTutorial && !isTutorialCollapsed && (
         <motion.div 
-          drag
-          dragConstraints={containerRef}
-          dragMomentum={false}
-          dragElastic={0.1}
-          initial={{ opacity: 0, y: -20, scale: 0.95 }}
+          initial={{ opacity: 0, y: -10, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ type: "spring", damping: 15 }}
-          className="absolute top-18 left-4 right-4 md:left-auto md:right-4 md:w-[380px] bg-slate-950/95 border-2 border-cyan-500/40 backdrop-blur-lg rounded-xl p-4 z-30 shadow-[0_0_25px_rgba(6,182,212,0.3)] flex flex-col gap-2.5 cursor-grab active:cursor-grabbing select-none hover:bg-slate-950/98 transition-colors duration-200"
+          transition={{ type: "spring", damping: 18 }}
+          className="absolute top-16 left-3 right-3 sm:left-auto sm:right-4 sm:w-[350px] bg-slate-950/95 border-2 border-cyan-500/40 backdrop-blur-lg rounded-xl p-3 z-30 shadow-[0_0_25px_rgba(6,182,212,0.3)] flex flex-col gap-2 select-none pointer-events-auto max-h-[75vh] overflow-y-auto"
         >
-          {/* Draggable Handle Indicator */}
-          <div className="flex flex-col items-center justify-center gap-0.5 border-b border-cyan-500/10 pb-1.5">
-            <div className="flex gap-1">
-              <span className="w-1 h-1 rounded-full bg-cyan-500/40 animate-pulse" />
-              <span className="w-1 h-1 rounded-full bg-cyan-500/40 animate-pulse delay-75" />
-              <span className="w-1 h-1 rounded-full bg-cyan-500/40 animate-pulse delay-150" />
-            </div>
-            <span className="text-[7px] text-cyan-500/40 font-mono tracking-widest uppercase select-none font-bold">
-              ⚡ DRAG TO REPOSITION GUIDE ⚡
-            </span>
-          </div>
-
-          {/* Decorative scanner lines and corner brackets */}
-          <div className="absolute top-2 left-2 w-2 h-2 border-t-2 border-l-2 border-cyan-400 animate-pulse" />
-          <div className="absolute top-2 right-2 w-2 h-2 border-t-2 border-r-2 border-cyan-400 animate-pulse" />
-          <div className="absolute bottom-2 left-2 w-2 h-2 border-b-2 border-l-2 border-cyan-400 animate-pulse" />
-          <div className="absolute bottom-2 right-2 w-2 h-2 border-b-2 border-r-2 border-cyan-400 animate-pulse" />
+          {/* Decorative scanner corner brackets */}
+          <div className="absolute top-2 left-2 w-2 h-2 border-t-2 border-l-2 border-cyan-400 opacity-60" />
+          <div className="absolute top-2 right-2 w-2 h-2 border-t-2 border-r-2 border-cyan-400 opacity-60" />
+          <div className="absolute bottom-2 left-2 w-2 h-2 border-b-2 border-l-2 border-cyan-400 opacity-60" />
+          <div className="absolute bottom-2 right-2 w-2 h-2 border-b-2 border-r-2 border-cyan-400 opacity-60" />
           
-          <div className="flex justify-between items-center border-b border-cyan-500/20 pb-2">
+          <div className="flex justify-between items-center border-b border-cyan-500/20 pb-1.5">
             <div className="flex items-center gap-2">
               <div className="relative">
                 <span className="absolute inline-flex h-2 w-2 rounded-full bg-cyan-400 opacity-75 animate-ping" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-500" />
               </div>
               <span className="text-cyan-400 text-xs font-black font-mono tracking-widest uppercase">
-                FLIGHT ACADEMY SIMULATION
+                FLIGHT ACADEMY GUIDE
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -3637,9 +3881,9 @@ export default function GameBoard({
               </div>
               <button 
                 onClick={() => setIsTutorialCollapsed(true)}
-                className="text-slate-400 hover:text-cyan-400 text-[10px] font-mono font-bold border border-slate-800 hover:border-cyan-500/30 bg-slate-900/40 px-1.5 py-0.5 rounded transition pointer-events-auto"
+                className="text-slate-400 hover:text-cyan-400 text-[10px] font-mono font-bold border border-slate-800 hover:border-cyan-500/30 bg-slate-900/40 px-1.5 py-0.5 rounded transition cursor-pointer"
               >
-                MINIMIZE
+                MINIMIZE ✕
               </button>
             </div>
           </div>
@@ -3671,11 +3915,11 @@ export default function GameBoard({
             <div className="flex flex-col justify-center min-w-0">
               <span className="text-[8px] font-mono text-cyan-400 font-extrabold uppercase tracking-wide">VALERIE (ACADEMY AI)</span>
               <p className="text-[10px] text-slate-200 font-mono leading-relaxed mt-0.5 italic">
-                {tutStep === 0 && "Welcome Cadet. Calibrate thruster response. Move the vessel across the grid."}
-                {tutStep === 1 && "Direct hit! Active training targets ahead. Obliterate the 3 oncoming target orbs."}
+                {tutStep === 0 && "Welcome Cadet. Your weapons fire automatically — just aim by flying into position. Calibrate thrusters by dodging energy hazards."}
+                {tutStep === 1 && "Direct hit! Active training targets ahead. Line up your vessel to destroy the 3 target orbs."}
                 {tutStep === 2 && "Exquisite shooting! Debris yielded amethyst energy cores. Salvage the 3 scraps to refuel."}
-                {tutStep === 3 && "Supply drones arrived! Grab either the Green Shield Core or Blue Double-Laser Upgrade."}
-                {tutStep === 4 && "Flawless training sequence! Hold tightly as we synchronize your hyperdrive vectors."}
+                {tutStep === 3 && "Supply drones arrived! Grab BOTH the Green Shield Core and Blue Double-Laser Upgrade."}
+                {tutStep === 4 && "Hostile drone wave detected! Maintain evasive maneuvers and eliminate attackers under live fire!"}
               </p>
             </div>
           </div>
@@ -3689,12 +3933,12 @@ export default function GameBoard({
                   {tutPhaseCleared ? (
                     <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
                       <span>✓</span>
-                      <span>Thrusters Calibrated! [100%]</span>
+                      <span>Thrusters Calibrated & Hazards Avoided! [100%]</span>
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5 text-cyan-300">
                       <span className="animate-ping h-1 w-1 bg-cyan-400 rounded-full" />
-                      <span>[ ] MANEUVER: Ignite Thrusters (WASD / Arrows / Drag) ({Math.round(Math.min(100, (tutProgress / 1.2) * 100))}% Calibrated)</span>
+                      <span>[ ] MANEUVER: Dodge Hazards & Calibrate Thrusters ({Math.round(Math.min(100, (tutProgress / 3.5) * 100))}% Calibrated)</span>
                     </div>
                   )}
                 </div>
@@ -3743,29 +3987,49 @@ export default function GameBoard({
                     <span className="text-emerald-400">✓</span>
                     <span>Amethyst Harvested</span>
                   </div>
-                  {tutPhaseCleared ? (
-                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                      <span>✓</span>
-                      <span>POWER UPGRADE: Core Subsystems Overloaded!</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-cyan-300">
-                      <span className="animate-ping h-1 w-1 bg-cyan-400 rounded-full animate-pulse" />
-                      <span>[ ] POWER UPGRADE: Grab Shield Core or Double Laser</span>
-                    </div>
-                  )}
+                  <div className="space-y-1 pl-1">
+                    {stateRef.current?.tutShieldPicked ? (
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                        <span>✓</span>
+                        <span>POWER UP 1: Shield Core Collected (Green)</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-emerald-300">
+                        <span className="animate-ping h-1 w-1 bg-emerald-400 rounded-full animate-pulse" />
+                        <span>[ ] POWER UP 1: Collect Green Shield Core</span>
+                      </div>
+                    )}
+                    {stateRef.current?.tutDoublePicked ? (
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                        <span>✓</span>
+                        <span>POWER UP 2: Double Laser Collected (Blue)</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-blue-300">
+                        <span className="animate-ping h-1 w-1 bg-blue-400 rounded-full animate-pulse" />
+                        <span>[ ] POWER UP 2: Collect Blue Double Laser</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               {tutStep === 4 && (
                 <div className="space-y-1">
-                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
-                    <span>✓</span>
-                    <span>Systems Overloaded & Ready</span>
+                  <div className="flex items-center gap-1.5 text-slate-500 line-through">
+                    <span className="text-emerald-400">✓</span>
+                    <span>Both Subsystems Overloaded</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-yellow-400 animate-pulse">
-                    <span>⚡</span>
-                    <span>WARP SEQUENCE: Click "COMPLETE GRADUATION" below...</span>
-                  </div>
+                  {tutPhaseCleared ? (
+                    <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                      <span>✓</span>
+                      <span>LIVE COMBAT: Hostile Drone Wave Neutralized!</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-rose-400 animate-pulse">
+                      <span>⚠️</span>
+                      <span>[ ] LIVE COMBAT: Engage Live Hostiles ({stateRef.current?.enemies?.length || 0} Active)</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -3777,24 +4041,24 @@ export default function GameBoard({
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={advanceTutorialStep}
-              className="w-full py-2.5 px-4 bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 text-xs font-black font-mono rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.5)] border border-cyan-300 tracking-wider uppercase flex items-center justify-center gap-2 animate-[pulse_1.5s_infinite] pointer-events-auto"
+              className="w-full py-2.5 px-4 bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 text-xs font-black font-mono rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.5)] border border-cyan-300 tracking-wider uppercase flex items-center justify-center gap-2 animate-[pulse_1.5s_infinite] pointer-events-auto cursor-pointer"
             >
               <span>
                 {tutStep === 0 && "PROCEED TO LIVE TARGET PRACTICE →"}
                 {tutStep === 1 && "PROCEED TO NEON SCRAP HARVESTING →"}
                 {tutStep === 2 && "PROCEED TO TACTICAL UPGRADES →"}
-                {tutStep === 3 && "PROCEED TO GRADUATION PHASE →"}
+                {tutStep === 3 && "PROCEED TO LIVE COMBAT TRIAL →"}
                 {tutStep === 4 && "COMPLETE GRADUATION & DEPLOY TO ACTIVE UNIVERSE ⚡"}
               </span>
             </motion.button>
           ) : (
             <div className="w-full py-2 px-3 bg-slate-900/80 border border-slate-800 rounded-lg flex items-center justify-center text-[10px] font-mono text-cyan-400/70 uppercase select-none">
               <span>
-                {tutStep === 0 && "MANEUVER SHIP TO TRIGGER SYSTEM SYNC..."}
+                {tutStep === 0 && "MANEUVER SHIP TO DODGE HAZARDS..."}
                 {tutStep === 1 && "DESTROY ALL 3 TARGET ORBS TO CLEAR PHASE..."}
                 {tutStep === 2 && "COLLECT ALL 3 AMETHYST SCRAPS TO REFUEL..."}
-                {tutStep === 3 && "ACQUIRE EITHER POWER-UP IN THE SECTOR..."}
-                {tutStep === 4 && "GRADUATION READY"}
+                {tutStep === 3 && "ACQUIRE BOTH POWER-UPS IN THE SECTOR..."}
+                {tutStep === 4 && "NEUTRALIZE LIVE HOSTILE DRONES..."}
               </span>
             </div>
           )}
@@ -3804,18 +4068,18 @@ export default function GameBoard({
             <div className="flex justify-between items-center text-[8px] font-mono font-black text-slate-400 tracking-wider">
               <span>SIMULATION SYNC STATUS</span>
               <span className="text-cyan-400 uppercase">
-                {tutStep === 0 && "IGNITION TRIGGER PENDING"}
+                {tutStep === 0 && "MANEUVERING MATRIX"}
                 {tutStep === 1 && "TARGET LOCK ACTIVE"}
-                {tutStep === 2 && "GRAVITY RECOVERY MATRIX ACTIVE"}
-                {tutStep === 3 && "TACTICAL CORE INBOUND"}
-                {tutStep === 4 && "HYPERDRIVE VECTORS LOCKED"}
+                {tutStep === 2 && "GRAVITY RECOVERY MATRIX"}
+                {tutStep === 3 && "TACTICAL CORE UPGRADES"}
+                {tutStep === 4 && "LIVE FIRE DRILL"}
               </span>
             </div>
             <div className="h-1.5 w-full bg-slate-950 border border-slate-800/80 rounded-full overflow-hidden p-0.5">
               <div 
                 className="h-full bg-gradient-to-r from-cyan-500 via-cyan-400 to-teal-400 transition-all duration-300 rounded-full shadow-[0_0_6px_rgba(6,182,212,0.8)]"
                 style={{ 
-                  width: tutStep === 0 ? "20%" : tutStep === 1 ? `${Math.round((Math.max(0, 3 - (stateRef.current?.enemies?.length || 0)) / 3) * 100)}%` : tutStep === 2 ? `${Math.min(100, Math.round((tutProgress / 3) * 100))}%` : tutStep === 3 ? "80%" : "100%" 
+                  width: tutStep === 0 ? `${Math.min(100, Math.round((tutProgress / 3.5) * 100))}%` : tutStep === 1 ? `${Math.round((Math.max(0, 3 - (stateRef.current?.enemies?.length || 0)) / 3) * 100)}%` : tutStep === 2 ? `${Math.min(100, Math.round((tutProgress / 3) * 100))}%` : tutStep === 3 ? `${Math.round((((stateRef.current?.tutShieldPicked ? 1 : 0) + (stateRef.current?.tutDoublePicked ? 1 : 0)) / 2) * 100)}%` : tutStep === 4 ? `${tutPhaseCleared ? 100 : Math.min(99, Math.round((tutProgress / 5.0) * 100))}%` : "100%" 
                 }}
               />
             </div>
@@ -4209,7 +4473,7 @@ export default function GameBoard({
             </div>
 
             <p className="text-[10px] text-slate-350 leading-relaxed font-mono px-2">
-              Vessel core integrity critical. Watch a short sponsor broadcast to completely restore ship shield and blast away current threats!
+              Vessel core integrity critical. Watch a short HilltopAds sponsor broadcast to completely restore ship shield and blast away current threats!
             </p>
 
             <div className="space-y-2.5 pt-2">
