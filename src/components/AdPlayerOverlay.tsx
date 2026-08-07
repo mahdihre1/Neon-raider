@@ -16,18 +16,38 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   onCancel,
   directAdUrl
 }) => {
-  const [timeLeft, setTimeLeft] = useState(4);
+  const totalDuration = 30;
+  const [timeLeft, setTimeLeft] = useState(totalDuration);
   const [isCompleted, setIsCompleted] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [autoClaimed, setAutoClaimed] = useState(false);
 
   const sponsor = {
     brand: "HILLTOP ADS NETWORK",
-    title: "HIGH-PERFORMANCE GAME MONETIZATION",
+    title: "ZONE #7299377 REWARD BROADCAST",
     description: "Verified Ad Network • Powered by HilltopAds Anti-Fraud Infrastructure",
-    badge: "HILLTOP ADS VERIFIED",
+    badge: "HILLTOP ADS ZONE #7299377",
     color: "from-cyan-500 via-blue-500 to-purple-600"
   };
+
+  const HILLTOP_ZONE_URL = "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN";
+
+  // Dynamic script trigger on overlay mount
+  useEffect(() => {
+    try {
+      const script = document.createElement('script');
+      script.src = HILLTOP_ZONE_URL;
+      script.async = true;
+      document.body.appendChild(script);
+      return () => {
+        if (document.body.contains(script)) {
+          document.body.removeChild(script);
+        }
+      };
+    } catch (e) {
+      console.warn("HilltopAds script initialization:", e);
+    }
+  }, []);
 
   // Timer Countdown Effect with auto-claim fallback
   useEffect(() => {
@@ -56,11 +76,10 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   };
 
   const handleVisitSponsor = () => {
-    const targetUrl = directAdUrl || 'https://hilltopads.com';
+    const targetUrl = directAdUrl || HILLTOP_ZONE_URL;
     window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const totalDuration = 4;
   const progressPercent = Math.min(100, Math.max(0, ((totalDuration - timeLeft) / totalDuration) * 100));
 
   return (
