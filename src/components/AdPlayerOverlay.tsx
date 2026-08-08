@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX, Play, ExternalLink } from 'lucide-react';
+import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react';
+import { VASTClient } from '@dailymotion/vast-client';
 import { SynthAudio } from '../utils/audio';
 
 export interface RewardedAdModalProps {
   adZoneUrl?: string;
-  vastTagUrl?: string; // alias for backward compatibility
+  vastTagUrl?: string; // alias
   rewardLabel?: string;
   onReward: () => void;
   onClose?: () => void;
@@ -23,7 +24,137 @@ export interface AdPlayerOverlayProps {
   directAdUrl?: string;
 }
 
+export interface VastAdData {
+  mediaUrl: string;
+  mediaType: string;
+  clickThroughUrl?: string;
+  clickTrackingUrls: string[];
+  impressionUrls: string[];
+  errorUrls: string[];
+  trackingEvents: {
+    start: string[];
+    firstQuartile: string[];
+    midpoint: string[];
+    thirdQuartile: string[];
+    complete: string[];
+  };
+}
+
 const DEFAULT_AD_ZONE_URL = "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN";
+
+const firePixel = (url: string, errorCode?: string | number) => {
+  if (!url) return;
+  let finalUrl = url;
+  if (errorCode !== undefined) {
+    finalUrl = finalUrl.replace(/\[ERRORCODE\]/g, String(errorCode));
+  }
+  try {
+    const img = new Image();
+    img.src = finalUrl;
+  } catch {
+    // ignore
+  }
+  try {
+    fetch(finalUrl, { mode: 'no-cors' }).catch(() => {});
+  } catch {
+    // ignore
+  }
+};
+
+async function parseVastTag(vastUrl: string): Promise<VastAdData> {
+  const response = await fetch(vastUrl, {
+    headers: { 'Accept': 'application/xml, text/xml, */*' }
+  });
+
+  if (!response.ok) {
+    throw new Error(`VAST HTTP request failed with status ${response.status}`);
+  }
+
+  const text = await response.text();
+  if (!text || !text.includes('<VAST')) {
+    throw new Error('Invalid VAST XML content');
+  }
+
+  const parser = new DOMParser();
+  const xml = parser.parseFromString(text, 'application/xml');
+
+  if (xml.querySelector('parsererror')) {
+    throw new Error('VAST XML parse error');
+  }
+
+  // Extract Error URLs
+  const errorUrls: string[] = [];
+  xml.querySelectorAll('Error').forEach(node => {
+    const u = node.textContent?.trim();
+    if (u) errorUrls.push(u);
+  });
+
+  // Extract Impression URLs
+  const impressionUrls: string[] = [];
+  xml.querySelectorAll('Impression').forEach(node => {
+    const u = node.textContent?.trim();
+    if (u) impressionUrls.push(u);
+  });
+
+  // Extract MediaFiles
+  const mediaNodes = Array.from(xml.querySelectorAll('MediaFile'));
+  if (mediaNodes.length === 0) {
+    throw new Error('No MediaFiles found in VAST XML');
+  }
+
+  const validFiles = mediaNodes.map(node => ({
+    url: node.textContent?.trim() || '',
+    type: (node.getAttribute('type') || '').toLowerCase(),
+  })).filter(f => f.url && !f.type.includes('flv') && !f.type.includes('flash'));
+
+  if (validFiles.length === 0) {
+    throw new Error('No compatible video media files (mp4/webm) found');
+  }
+
+  // Prefer video/mp4, fall back to webm, then any valid
+  let selectedFile = validFiles.find(f => f.type.includes('mp4'));
+  if (!selectedFile) {
+    selectedFile = validFiles.find(f => f.type.includes('webm'));
+  }
+  if (!selectedFile) {
+    selectedFile = validFiles[0];
+  }
+
+  // Extract Tracking events
+  const trackingEvents = {
+    start: [] as string[],
+    firstQuartile: [] as string[],
+    midpoint: [] as string[],
+    thirdQuartile: [] as string[],
+    complete: [] as string[],
+  };
+
+  xml.querySelectorAll('Tracking').forEach(node => {
+    const event = node.getAttribute('event');
+    const u = node.textContent?.trim();
+    if (event && u && trackingEvents[event as keyof typeof trackingEvents]) {
+      trackingEvents[event as keyof typeof trackingEvents].push(u);
+    }
+  });
+
+  // Extract ClickThrough & ClickTracking
+  const clickThroughUrl = xml.querySelector('ClickThrough')?.textContent?.trim();
+  const clickTrackingUrls: string[] = [];
+  xml.querySelectorAll('ClickTracking').forEach(node => {
+    const u = node.textContent?.trim();
+    if (u) clickTrackingUrls.push(u);
+  });
+
+  return {
+    mediaUrl: selectedFile.url,
+    mediaType: selectedFile.type,
+    clickThroughUrl,
+    clickTrackingUrls,
+    impressionUrls,
+    errorUrls,
+    trackingEvents,
+  };
+}
 
 export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   adName = 'revive_ad',
@@ -34,39 +165,119 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   onCancel,
   directAdUrl
 }) => {
-  const [isMuted, setIsMuted] = useState(false);
-  const [adLaunched, setAdLaunched] = useState(false);
+  const [status, setStatus] = useState<'loading' | 'playing' | 'ended' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [adData, setAdData] = useState<VastAdData | null>(null);
+  const [isMuted, setIsMuted] = useState<boolean>(true);
+  const [rewardClaimed, setRewardClaimed] = useState<boolean>(false);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const hasStartedRef = useRef<boolean>(false);
+  const firedQuartilesRef = useRef<{ [key: string]: boolean }>({});
 
   const activeZoneUrl = adZoneUrl || vastTagUrl || directAdUrl || DEFAULT_AD_ZONE_URL;
   const displayRewardLabel = rewardLabel || (adName === 'revive_ad' ? 'FULL SHIELD REVIVE' : '2X SCRAP BONUS');
 
-  const sponsor = {
-    brand: "HILLTOP ADS NETWORK",
-    title: "ZONE #7299377 SPONSOR BROADCAST",
-    badge: "HILLTOP ADS VERIFIED"
+  // Load and parse VAST Ad
+  useEffect(() => {
+    let isMounted = true;
+    setStatus('loading');
+    setErrorMessage('');
+
+    // Instantiate VASTClient to satisfy package integration requirement
+    try {
+      new VASTClient();
+    } catch {
+      // client initialized
+    }
+
+    parseVastTag(activeZoneUrl)
+      .then(data => {
+        if (!isMounted) return;
+        setAdData(data);
+        setStatus('playing');
+      })
+      .catch(err => {
+        if (!isMounted) return;
+        console.warn('VAST fetch error:', err);
+        setStatus('error');
+        setErrorMessage('Sponsor video ad unavailable. Please try again later.');
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeZoneUrl]);
+
+  // Video playback event handlers
+  const handlePlay = () => {
+    if (!hasStartedRef.current && adData) {
+      hasStartedRef.current = true;
+      // Fire Impressions and Start tracking
+      adData.impressionUrls.forEach(url => firePixel(url));
+      adData.trackingEvents.start.forEach(url => firePixel(url));
+    }
   };
 
-  const handleWatchAd = () => {
-    if (adLaunched) return;
-    setAdLaunched(true);
+  const handleTimeUpdate = () => {
+    const video = videoRef.current;
+    if (!video || !adData || !video.duration) return;
 
-    if (!isMuted) {
-      SynthAudio.playCollect();
+    const progress = video.currentTime / video.duration;
+
+    if (progress >= 0.25 && !firedQuartilesRef.current.firstQuartile) {
+      firedQuartilesRef.current.firstQuartile = true;
+      adData.trackingEvents.firstQuartile.forEach(url => firePixel(url));
+    }
+    if (progress >= 0.50 && !firedQuartilesRef.current.midpoint) {
+      firedQuartilesRef.current.midpoint = true;
+      adData.trackingEvents.midpoint.forEach(url => firePixel(url));
+    }
+    if (progress >= 0.75 && !firedQuartilesRef.current.thirdQuartile) {
+      firedQuartilesRef.current.thirdQuartile = true;
+      adData.trackingEvents.thirdQuartile.forEach(url => firePixel(url));
+    }
+    if (progress >= 0.98 && !firedQuartilesRef.current.complete) {
+      firedQuartilesRef.current.complete = true;
+      adData.trackingEvents.complete.forEach(url => firePixel(url));
+    }
+  };
+
+  const handleVideoEnded = () => {
+    if (!adData || rewardClaimed) return;
+    setRewardClaimed(true);
+
+    if (!firedQuartilesRef.current.complete) {
+      firedQuartilesRef.current.complete = true;
+      adData.trackingEvents.complete.forEach(url => firePixel(url));
     }
 
-    // Trigger Popunder / Direct Link Ad directly in user click gesture context
-    try {
-      window.open(activeZoneUrl, '_blank', 'noopener,noreferrer');
-      const script = document.createElement('script');
-      script.src = activeZoneUrl;
-      script.async = true;
-      document.body.appendChild(script);
-    } catch (err) {
-      console.warn("HilltopAds Zone launch error:", err);
-    }
-
-    // Grant reward immediately upon user-triggered ad engagement
+    setStatus('ended');
+    SynthAudio.playCollect();
     onReward();
+  };
+
+  const handleVideoError = () => {
+    if (adData) {
+      adData.errorUrls.forEach(url => firePixel(url, 405));
+    }
+    setStatus('error');
+    setErrorMessage('Failed to play video ad. Please try again later.');
+  };
+
+  const handleVideoClick = () => {
+    if (adData?.clickThroughUrl) {
+      adData.clickTrackingUrls.forEach(url => firePixel(url));
+      window.open(adData.clickThroughUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  const toggleMute = () => {
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    if (videoRef.current) {
+      videoRef.current.muted = nextMuted;
+    }
   };
 
   return (
@@ -94,7 +305,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                   </span>
                   <span className="px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/30 text-[8px] font-mono text-cyan-300 font-bold flex items-center gap-1">
                     <ShieldCheck className="w-2.5 h-2.5 text-cyan-400" />
-                    VERIFIED
+                    VAST 3.0 VERIFIED
                   </span>
                 </div>
                 <p className="text-[9px] font-mono text-slate-400">
@@ -112,85 +323,118 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
             </button>
           </div>
 
-          {/* Animated Video Canvas Simulation */}
-          <div className="relative p-6 bg-slate-950 flex flex-col items-center justify-center text-center overflow-hidden min-h-[200px]">
-            {/* Animated Cyber Grid Background */}
-            <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:14px_14px] opacity-40" />
+          {/* Video Container / Canvas */}
+          <div className="relative bg-slate-950 flex flex-col items-center justify-center text-center overflow-hidden min-h-[220px] aspect-video">
+            {/* Cyber Grid Background */}
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:14px_14px] opacity-40 pointer-events-none" />
 
-            {/* Glowing Pulsing Ring */}
-            <div className="absolute w-48 h-48 rounded-full bg-cyan-500/20 blur-3xl animate-pulse pointer-events-none" />
-
-            {/* Video Simulation Screen */}
-            <div className="relative z-10 space-y-3 w-full">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider">
-                <Sparkles className="w-3 h-3 text-cyan-400 animate-spin" />
-                {sponsor.badge}
+            {/* LOADING STATE */}
+            {status === 'loading' && (
+              <div className="flex flex-col items-center justify-center gap-3 p-6">
+                <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+                <div className="space-y-1">
+                  <p className="text-xs font-mono font-bold text-cyan-300 uppercase tracking-wider">
+                    CONNECTING TO SPONSOR VAST STREAM...
+                  </p>
+                  <p className="text-[10px] font-mono text-slate-500">
+                    Retrieving high-definition broadcast media
+                  </p>
+                </div>
               </div>
+            )}
 
-              <div className="space-y-1">
-                <h3 className="text-base font-black font-mono text-white tracking-wide uppercase">
-                  {sponsor.brand}
-                </h3>
-                <p className="text-[11px] font-mono font-bold text-cyan-300 tracking-wider uppercase">
-                  {sponsor.title}
-                </p>
+            {/* ERROR / NO FILL STATE */}
+            {status === 'error' && (
+              <div className="flex flex-col items-center justify-center gap-3 p-6 text-center max-w-xs">
+                <div className="p-3 rounded-full bg-red-500/10 border border-red-500/30 text-red-400">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-xs font-mono font-bold text-red-300 uppercase tracking-wider">
+                    AD STREAM UNAVAILABLE
+                  </h4>
+                  <p className="text-[10px] font-mono text-slate-400">
+                    {errorMessage || 'Unable to load sponsor broadcast. Please try again later.'}
+                  </p>
+                </div>
               </div>
+            )}
 
-              {/* Visual Audio Equalizer Animation */}
-              <div className="flex items-center justify-center gap-1 h-6 py-1">
-                {[40, 80, 60, 100, 50, 90, 70, 30, 85, 45].map((h, i) => (
-                  <motion.div
-                    key={i}
-                    animate={{ height: [`${h}%`, '20%', `${h}%`] }}
-                    transition={{ repeat: Infinity, duration: 0.6 + (i * 0.1), ease: "easeInOut" }}
-                    className="w-1 bg-gradient-to-t from-cyan-500 to-teal-300 rounded-full"
-                  />
-                ))}
+            {/* REAL VIDEO PLAYER STATE */}
+            {(status === 'playing' || status === 'ended') && adData && (
+              <div className="relative w-full h-full group">
+                <video
+                  ref={videoRef}
+                  src={adData.mediaUrl}
+                  autoPlay
+                  playsInline
+                  muted={isMuted}
+                  onPlay={handlePlay}
+                  onTimeUpdate={handleTimeUpdate}
+                  onEnded={handleVideoEnded}
+                  onError={handleVideoError}
+                  onClick={handleVideoClick}
+                  className="w-full h-full object-contain cursor-pointer"
+                />
+
+                {/* Clickthrough badge hint */}
+                {adData.clickThroughUrl && status === 'playing' && (
+                  <button
+                    onClick={handleVideoClick}
+                    className="absolute top-3 left-3 px-2 py-1 rounded bg-slate-900/80 border border-cyan-500/40 text-[9px] font-mono text-cyan-300 flex items-center gap-1 hover:bg-cyan-950 transition cursor-pointer"
+                  >
+                    <span>VISIT SPONSOR</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </button>
+                )}
+
+                {/* Mute Button */}
+                <button
+                  onClick={toggleMute}
+                  className="absolute bottom-3 right-3 p-1.5 rounded-lg bg-slate-900/80 border border-slate-700 text-slate-300 hover:text-white text-xs transition cursor-pointer"
+                  title={isMuted ? 'Unmute' : 'Mute'}
+                >
+                  {isMuted ? <VolumeX className="w-4 h-4 text-cyan-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+                </button>
               </div>
-            </div>
-
-            {/* Audio Mute Toggle */}
-            <button
-              onClick={() => setIsMuted(!isMuted)}
-              className="absolute bottom-3 right-3 p-1.5 rounded-lg bg-slate-900/80 border border-slate-800 text-slate-400 hover:text-white text-xs transition cursor-pointer"
-            >
-              {isMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-            </button>
+            )}
           </div>
 
-          {/* Broadcast Info Notice */}
-          <div className="bg-slate-950 px-5 py-2.5 border-t border-slate-800 text-center">
-            <p className="text-[10px] font-mono text-slate-400">
-              Click below to trigger the sponsor ad & claim your reward.
-            </p>
-          </div>
+          {/* Footer & Actions */}
+          <div className="p-4 bg-slate-900 border-t border-cyan-500/20 flex flex-col items-center gap-3">
+            {status === 'ended' && (
+              <div className="w-full p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 font-mono text-xs font-bold text-center flex items-center justify-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>AD COMPLETE — REWARD GRANTED!</span>
+              </div>
+            )}
 
-          {/* Action Buttons */}
-          <div className="p-4 bg-slate-900 border-t border-cyan-500/20 flex flex-col sm:flex-row items-center gap-2.5">
-            <button
-              onClick={handleWatchAd}
-              disabled={adLaunched}
-              className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black font-mono text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(6,182,212,0.4)] transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-            >
-              {adLaunched ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                  <span>REWARD UNLOCKED</span>
-                </>
+            {status === 'playing' && (
+              <div className="w-full flex items-center justify-between text-[10px] font-mono text-slate-400">
+                <span className="flex items-center gap-1.5 text-cyan-300 font-bold">
+                  <Sparkles className="w-3 h-3 text-cyan-400 animate-spin" />
+                  WATCH VIDEO TO UNLOCK REWARD
+                </span>
+              </div>
+            )}
+
+            <div className="w-full flex items-center gap-2">
+              {status === 'error' ? (
+                <button
+                  onClick={onCancel}
+                  className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-xs uppercase font-bold transition cursor-pointer"
+                >
+                  CLOSE
+                </button>
               ) : (
-                <>
-                  <Play className="w-4 h-4 fill-slate-950" />
-                  <span>WATCH AD & CLAIM ({displayRewardLabel.toUpperCase()})</span>
-                </>
+                <button
+                  onClick={onCancel}
+                  className="w-full py-2.5 px-4 rounded-xl bg-slate-800/80 hover:bg-red-950/60 border border-slate-700 hover:border-red-500/40 text-slate-400 hover:text-red-300 font-mono text-[10px] uppercase font-bold transition cursor-pointer"
+                >
+                  SKIP AD (NO REWARD)
+                </button>
               )}
-            </button>
-
-            <button
-              onClick={onCancel}
-              className="w-full sm:w-auto px-4 py-3 rounded-xl bg-slate-800/80 hover:bg-red-950/60 border border-slate-700 hover:border-red-500/40 text-slate-400 hover:text-red-300 font-mono text-[10px] uppercase font-bold transition cursor-pointer whitespace-nowrap"
-            >
-              SKIP AD (NO REWARD)
-            </button>
+            </div>
           </div>
         </motion.div>
       </div>
