@@ -61,131 +61,88 @@ const firePixel = (url: string, errorCode?: string | number) => {
   }
 };
 
-const cleanText = (str?: string | null): string => {
-  if (!str) return '';
-  return str
-    .replace(/<!\[CDATA\[/gi, '')
-    .replace(/\]\]>/gi, '')
-    .trim();
-};
+async function parseVastTag(vastUrl: string): Promise<VastAdData> {
+  const client = new VASTClient();
+  const response = await client.get(vastUrl, { resolveAll: true });
 
-async function parseVastTag(vastUrl: string, depth = 0): Promise<VastAdData> {
-  if (depth > 3) {
-    throw new Error('Too many VAST wrapper redirects');
+  if (!response || !response.ads || response.ads.length === 0) {
+    throw new Error('No ads found in VAST response');
   }
 
-  const response = await fetch(vastUrl, {
-    headers: { 'Accept': 'application/xml, text/xml, */*' }
-  });
+  // Pick exactly ONE ad deterministically:
+  // Prefer the ad with the shortest linear creative duration if durations are available,
+  // otherwise fall back to the first ad in the response.
+  let chosenAd = response.ads[0];
+  let shortestDuration = Infinity;
 
-  if (!response.ok) {
-    throw new Error(`VAST HTTP request failed with status ${response.status}`);
-  }
-
-  const text = await response.text();
-  if (!text || !text.includes('<VAST')) {
-    throw new Error('Invalid VAST XML content');
-  }
-
-  const parser = new DOMParser();
-  const xml = parser.parseFromString(text, 'application/xml');
-
-  if (xml.querySelector('parsererror')) {
-    throw new Error('VAST XML parse error');
-  }
-
-  // Check if this is a Wrapper VAST
-  const wrapperUriNode = xml.querySelector('VASTAdTagURI');
-  const wrapperUri = cleanText(wrapperUriNode?.textContent);
-
-  // Extract Error URLs
-  const errorUrls: string[] = [];
-  xml.querySelectorAll('Error').forEach(node => {
-    const u = cleanText(node.textContent);
-    if (u) errorUrls.push(u);
-  });
-
-  // Extract Impression URLs
-  const impressionUrls: string[] = [];
-  xml.querySelectorAll('Impression').forEach(node => {
-    const u = cleanText(node.textContent);
-    if (u) impressionUrls.push(u);
-  });
-
-  // Extract Tracking events
-  const trackingEvents = {
-    start: [] as string[],
-    firstQuartile: [] as string[],
-    midpoint: [] as string[],
-    thirdQuartile: [] as string[],
-    complete: [] as string[],
-  };
-
-  xml.querySelectorAll('Tracking').forEach(node => {
-    const event = node.getAttribute('event');
-    const u = cleanText(node.textContent);
-    if (event && u && trackingEvents[event as keyof typeof trackingEvents]) {
-      trackingEvents[event as keyof typeof trackingEvents].push(u);
-    }
-  });
-
-  // Extract ClickThrough & ClickTracking
-  const clickThroughUrl = cleanText(xml.querySelector('ClickThrough')?.textContent);
-  const clickTrackingUrls: string[] = [];
-  xml.querySelectorAll('ClickTracking').forEach(node => {
-    const u = cleanText(node.textContent);
-    if (u) clickTrackingUrls.push(u);
-  });
-
-  // Extract MediaFiles
-  const mediaNodes = Array.from(xml.querySelectorAll('MediaFile'));
-
-  if (mediaNodes.length === 0 && wrapperUri) {
-    // Follow wrapper VAST tag
-    const wrapperData = await parseVastTag(wrapperUri, depth + 1);
-    return {
-      ...wrapperData,
-      impressionUrls: [...impressionUrls, ...wrapperData.impressionUrls],
-      errorUrls: [...errorUrls, ...wrapperData.errorUrls],
-      clickTrackingUrls: [...clickTrackingUrls, ...wrapperData.clickTrackingUrls],
-      clickThroughUrl: wrapperData.clickThroughUrl || clickThroughUrl,
-      trackingEvents: {
-        start: [...trackingEvents.start, ...wrapperData.trackingEvents.start],
-        firstQuartile: [...trackingEvents.firstQuartile, ...wrapperData.trackingEvents.firstQuartile],
-        midpoint: [...trackingEvents.midpoint, ...wrapperData.trackingEvents.midpoint],
-        thirdQuartile: [...trackingEvents.thirdQuartile, ...wrapperData.trackingEvents.thirdQuartile],
-        complete: [...trackingEvents.complete, ...wrapperData.trackingEvents.complete],
+  for (const ad of response.ads) {
+    for (const creative of ad?.creatives || []) {
+      const dur = creative?.duration;
+      const isLinear = creative?.type === 'linear' || (creative?.mediaFiles && creative.mediaFiles.length > 0);
+      if (isLinear && typeof dur === 'number' && dur > 0) {
+        if (dur < shortestDuration) {
+          shortestDuration = dur;
+          chosenAd = ad;
+        }
       }
-    };
-  }
-
-  if (mediaNodes.length === 0) {
-    throw new Error('No MediaFiles found in VAST XML');
-  }
-
-  const validFiles = mediaNodes.map(node => {
-    const rawUrl = cleanText(node.textContent);
-    let type = (node.getAttribute('type') || '').toLowerCase();
-    if (!type) {
-      if (rawUrl.includes('.mp4')) type = 'video/mp4';
-      else if (rawUrl.includes('.webm')) type = 'video/webm';
-      else type = 'video/mp4';
     }
-    return { url: rawUrl, type };
-  }).filter(f => f.url && !f.type.includes('flv') && !f.type.includes('flash'));
+  }
+
+  if (!chosenAd) {
+    throw new Error('No valid ad selected from VAST response');
+  }
+
+  // Find linear creative from chosen ad only
+  const creative = (chosenAd.creatives || []).find(
+    (c: any) => c.type === 'linear' || (c.mediaFiles && c.mediaFiles.length > 0)
+  ) || chosenAd.creatives?.[0];
+
+  const rawMediaFiles = creative?.mediaFiles || [];
+  const validFiles = rawMediaFiles
+    .map((mf: any) => {
+      const url = mf.fileURL || mf.url || '';
+      let type = (mf.mimeType || mf.mediaType || '').toLowerCase();
+      if (!type && url) {
+        if (url.includes('.mp4')) type = 'video/mp4';
+        else if (url.includes('.webm')) type = 'video/webm';
+      }
+      return { url, type };
+    })
+    .filter((f: any) => f.url && !f.type.includes('flv') && !f.type.includes('flash'));
 
   if (validFiles.length === 0) {
     throw new Error('No compatible video media files (mp4/webm) found');
   }
 
   // Prefer video/mp4, fall back to webm, then any valid
-  let selectedFile = validFiles.find(f => f.type.includes('mp4'));
+  let selectedFile = validFiles.find((f: any) => f.type.includes('mp4'));
   if (!selectedFile) {
-    selectedFile = validFiles.find(f => f.type.includes('webm'));
+    selectedFile = validFiles.find((f: any) => f.type.includes('webm'));
   }
   if (!selectedFile) {
     selectedFile = validFiles[0];
   }
+
+  const extractUrls = (arr: any) =>
+    Array.isArray(arr)
+      ? arr.map((item: any) => (typeof item === 'string' ? item : item?.url)).filter(Boolean)
+      : [];
+
+  const errorUrls = extractUrls(chosenAd.errorURLTemplates);
+  const impressionUrls = extractUrls(chosenAd.impressionURLTemplates);
+
+  const ctObj = creative?.videoClickThroughURLTemplate;
+  const clickThroughUrl = typeof ctObj === 'string' ? ctObj : ctObj?.url || undefined;
+  const clickTrackingUrls = extractUrls(creative?.videoClickTrackingURLTemplates);
+
+  const rawEvents = creative?.trackingEvents || {};
+  const trackingEvents = {
+    start: extractUrls(rawEvents.start),
+    firstQuartile: extractUrls(rawEvents.firstQuartile),
+    midpoint: extractUrls(rawEvents.midpoint),
+    thirdQuartile: extractUrls(rawEvents.thirdQuartile),
+    complete: extractUrls(rawEvents.complete),
+  };
 
   return {
     mediaUrl: selectedFile.url,
@@ -342,6 +299,14 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
     }
   };
 
+  // Sync muted properties directly on the video element when isMuted or adData changes
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+      videoRef.current.defaultMuted = true;
+    }
+  }, [isMuted, adData]);
+
   // Ensure autoplay triggers imperatively as soon as status becomes 'playing'
   useEffect(() => {
     if (status === 'playing' && videoRef.current) {
@@ -433,13 +398,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
             {(status === 'playing' || status === 'ended') && adData && (
               <div className="relative w-full h-full group">
                 <video
-                  ref={(el) => {
-                    videoRef.current = el;
-                    if (el) {
-                      el.muted = isMuted;
-                      el.defaultMuted = true;
-                    }
-                  }}
+                  ref={videoRef}
                   src={adData.mediaUrl}
                   autoPlay
                   playsInline
