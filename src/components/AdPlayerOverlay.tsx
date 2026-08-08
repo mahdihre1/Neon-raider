@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX, AlertTriangle, ExternalLink, Loader2 } from 'lucide-react';
+import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX, AlertTriangle, ExternalLink, Loader2, Play } from 'lucide-react';
 import { VASTClient } from '@dailymotion/vast-client';
 import { SynthAudio } from '../utils/audio';
 
@@ -61,7 +61,19 @@ const firePixel = (url: string, errorCode?: string | number) => {
   }
 };
 
-async function parseVastTag(vastUrl: string): Promise<VastAdData> {
+const cleanText = (str?: string | null): string => {
+  if (!str) return '';
+  return str
+    .replace(/<!\[CDATA\[/gi, '')
+    .replace(/\]\]>/gi, '')
+    .trim();
+};
+
+async function parseVastTag(vastUrl: string, depth = 0): Promise<VastAdData> {
+  if (depth > 3) {
+    throw new Error('Too many VAST wrapper redirects');
+  }
+
   const response = await fetch(vastUrl, {
     headers: { 'Accept': 'application/xml, text/xml, */*' }
   });
@@ -82,30 +94,85 @@ async function parseVastTag(vastUrl: string): Promise<VastAdData> {
     throw new Error('VAST XML parse error');
   }
 
+  // Check if this is a Wrapper VAST
+  const wrapperUriNode = xml.querySelector('VASTAdTagURI');
+  const wrapperUri = cleanText(wrapperUriNode?.textContent);
+
   // Extract Error URLs
   const errorUrls: string[] = [];
   xml.querySelectorAll('Error').forEach(node => {
-    const u = node.textContent?.trim();
+    const u = cleanText(node.textContent);
     if (u) errorUrls.push(u);
   });
 
   // Extract Impression URLs
   const impressionUrls: string[] = [];
   xml.querySelectorAll('Impression').forEach(node => {
-    const u = node.textContent?.trim();
+    const u = cleanText(node.textContent);
     if (u) impressionUrls.push(u);
+  });
+
+  // Extract Tracking events
+  const trackingEvents = {
+    start: [] as string[],
+    firstQuartile: [] as string[],
+    midpoint: [] as string[],
+    thirdQuartile: [] as string[],
+    complete: [] as string[],
+  };
+
+  xml.querySelectorAll('Tracking').forEach(node => {
+    const event = node.getAttribute('event');
+    const u = cleanText(node.textContent);
+    if (event && u && trackingEvents[event as keyof typeof trackingEvents]) {
+      trackingEvents[event as keyof typeof trackingEvents].push(u);
+    }
+  });
+
+  // Extract ClickThrough & ClickTracking
+  const clickThroughUrl = cleanText(xml.querySelector('ClickThrough')?.textContent);
+  const clickTrackingUrls: string[] = [];
+  xml.querySelectorAll('ClickTracking').forEach(node => {
+    const u = cleanText(node.textContent);
+    if (u) clickTrackingUrls.push(u);
   });
 
   // Extract MediaFiles
   const mediaNodes = Array.from(xml.querySelectorAll('MediaFile'));
+
+  if (mediaNodes.length === 0 && wrapperUri) {
+    // Follow wrapper VAST tag
+    const wrapperData = await parseVastTag(wrapperUri, depth + 1);
+    return {
+      ...wrapperData,
+      impressionUrls: [...impressionUrls, ...wrapperData.impressionUrls],
+      errorUrls: [...errorUrls, ...wrapperData.errorUrls],
+      clickTrackingUrls: [...clickTrackingUrls, ...wrapperData.clickTrackingUrls],
+      clickThroughUrl: wrapperData.clickThroughUrl || clickThroughUrl,
+      trackingEvents: {
+        start: [...trackingEvents.start, ...wrapperData.trackingEvents.start],
+        firstQuartile: [...trackingEvents.firstQuartile, ...wrapperData.trackingEvents.firstQuartile],
+        midpoint: [...trackingEvents.midpoint, ...wrapperData.trackingEvents.midpoint],
+        thirdQuartile: [...trackingEvents.thirdQuartile, ...wrapperData.trackingEvents.thirdQuartile],
+        complete: [...trackingEvents.complete, ...wrapperData.trackingEvents.complete],
+      }
+    };
+  }
+
   if (mediaNodes.length === 0) {
     throw new Error('No MediaFiles found in VAST XML');
   }
 
-  const validFiles = mediaNodes.map(node => ({
-    url: node.textContent?.trim() || '',
-    type: (node.getAttribute('type') || '').toLowerCase(),
-  })).filter(f => f.url && !f.type.includes('flv') && !f.type.includes('flash'));
+  const validFiles = mediaNodes.map(node => {
+    const rawUrl = cleanText(node.textContent);
+    let type = (node.getAttribute('type') || '').toLowerCase();
+    if (!type) {
+      if (rawUrl.includes('.mp4')) type = 'video/mp4';
+      else if (rawUrl.includes('.webm')) type = 'video/webm';
+      else type = 'video/mp4';
+    }
+    return { url: rawUrl, type };
+  }).filter(f => f.url && !f.type.includes('flv') && !f.type.includes('flash'));
 
   if (validFiles.length === 0) {
     throw new Error('No compatible video media files (mp4/webm) found');
@@ -119,31 +186,6 @@ async function parseVastTag(vastUrl: string): Promise<VastAdData> {
   if (!selectedFile) {
     selectedFile = validFiles[0];
   }
-
-  // Extract Tracking events
-  const trackingEvents = {
-    start: [] as string[],
-    firstQuartile: [] as string[],
-    midpoint: [] as string[],
-    thirdQuartile: [] as string[],
-    complete: [] as string[],
-  };
-
-  xml.querySelectorAll('Tracking').forEach(node => {
-    const event = node.getAttribute('event');
-    const u = node.textContent?.trim();
-    if (event && u && trackingEvents[event as keyof typeof trackingEvents]) {
-      trackingEvents[event as keyof typeof trackingEvents].push(u);
-    }
-  });
-
-  // Extract ClickThrough & ClickTracking
-  const clickThroughUrl = xml.querySelector('ClickThrough')?.textContent?.trim();
-  const clickTrackingUrls: string[] = [];
-  xml.querySelectorAll('ClickTracking').forEach(node => {
-    const u = node.textContent?.trim();
-    if (u) clickTrackingUrls.push(u);
-  });
 
   return {
     mediaUrl: selectedFile.url,
@@ -169,6 +211,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [adData, setAdData] = useState<VastAdData | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(true);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
   const [rewardClaimed, setRewardClaimed] = useState<boolean>(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -211,11 +254,30 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
 
   // Video playback event handlers
   const handlePlay = () => {
+    setIsPaused(false);
     if (!hasStartedRef.current && adData) {
       hasStartedRef.current = true;
       // Fire Impressions and Start tracking
       adData.impressionUrls.forEach(url => firePixel(url));
       adData.trackingEvents.start.forEach(url => firePixel(url));
+    }
+  };
+
+  const tryPlayVideo = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = isMuted;
+    video.defaultMuted = true;
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setIsPaused(false);
+        })
+        .catch(err => {
+          console.warn('Autoplay prevented by browser:', err);
+          setIsPaused(true);
+        });
     }
   };
 
@@ -283,21 +345,9 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   // Ensure autoplay triggers imperatively as soon as status becomes 'playing'
   useEffect(() => {
     if (status === 'playing' && videoRef.current) {
-      videoRef.current.muted = isMuted;
-      videoRef.current.play().catch(err => {
-        console.warn('Autoplay play() error:', err);
-      });
+      tryPlayVideo();
     }
-  }, [status, adData, isMuted]);
-
-  const handleMediaReady = () => {
-    if (videoRef.current) {
-      videoRef.current.muted = isMuted;
-      videoRef.current.play().catch(err => {
-        console.warn('Autoplay onMediaReady error:', err);
-      });
-    }
-  };
+  }, [status, adData]);
 
   return (
     <AnimatePresence>
@@ -383,20 +433,51 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
             {(status === 'playing' || status === 'ended') && adData && (
               <div className="relative w-full h-full group">
                 <video
-                  ref={videoRef}
+                  ref={(el) => {
+                    videoRef.current = el;
+                    if (el) {
+                      el.muted = isMuted;
+                      el.defaultMuted = true;
+                    }
+                  }}
                   src={adData.mediaUrl}
                   autoPlay
                   playsInline
+                  preload="auto"
                   muted={isMuted}
+                  defaultMuted={true}
                   onPlay={handlePlay}
-                  onLoadedMetadata={handleMediaReady}
-                  onCanPlay={handleMediaReady}
+                  onPause={() => {
+                    if (status === 'playing' && !rewardClaimed) {
+                      setIsPaused(true);
+                    }
+                  }}
+                  onLoadedMetadata={tryPlayVideo}
+                  onCanPlay={tryPlayVideo}
                   onTimeUpdate={handleTimeUpdate}
                   onEnded={handleVideoEnded}
                   onError={handleVideoError}
                   onClick={handleVideoClick}
                   className="w-full h-full object-contain cursor-pointer"
                 />
+
+                {/* Autoplay blocked overlay fallback */}
+                {isPaused && status === 'playing' && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      tryPlayVideo();
+                    }}
+                    className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xs cursor-pointer group/play"
+                  >
+                    <div className="p-4 rounded-full bg-cyan-500 text-slate-950 shadow-[0_0_35px_rgba(6,182,212,0.8)] group-hover/play:scale-110 transition-transform duration-200 mb-2">
+                      <Play className="w-8 h-8 fill-slate-950 ml-0.5" />
+                    </div>
+                    <span className="text-[11px] font-mono font-black text-cyan-300 uppercase tracking-widest bg-slate-900/90 px-3.5 py-1.5 rounded-full border border-cyan-500/40 shadow-lg">
+                      TAP TO PLAY AD
+                    </span>
+                  </div>
+                )}
 
                 {/* Clickthrough badge hint */}
                 {adData.clickThroughUrl && status === 'playing' && (
