@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Tv, Zap, CheckCircle2, X, ExternalLink, ShieldCheck, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { SynthAudio } from '../utils/audio';
 
 export interface RewardedAdModalProps {
@@ -24,10 +24,8 @@ export interface AdPlayerOverlayProps {
 export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   adName = 'revive_ad',
   rewardLabel,
-  vastTagUrl,
   onReward,
   onCancel,
-  directAdUrl
 }) => {
   const totalDuration = 30;
   const [timeLeft, setTimeLeft] = useState(totalDuration);
@@ -35,36 +33,9 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [autoClaimed, setAutoClaimed] = useState(false);
 
-  const HILLTOP_ZONE_URL = vastTagUrl || "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN";
-
-  const sponsor = {
-    brand: "HILLTOP ADS NETWORK",
-    title: "ZONE #7299377 REWARD BROADCAST",
-    description: "Verified Ad Network • Powered by HilltopAds Anti-Fraud Infrastructure",
-    badge: "HILLTOP ADS ZONE #7299377",
-    color: "from-cyan-500 via-blue-500 to-purple-600"
-  };
-
   const displayRewardLabel = rewardLabel || (adName === 'revive_ad' ? 'FULL SHIELD REVIVE' : '2X SCRAP BONUS');
 
-  // Dynamic script trigger on overlay mount
-  useEffect(() => {
-    try {
-      const script = document.createElement('script');
-      script.src = HILLTOP_ZONE_URL;
-      script.async = true;
-      document.body.appendChild(script);
-      return () => {
-        if (document.body.contains(script)) {
-          document.body.removeChild(script);
-        }
-      };
-    } catch (e) {
-      console.warn("HilltopAds script initialization:", e);
-    }
-  }, [HILLTOP_ZONE_URL]);
-
-  // Timer Countdown Effect with auto-claim fallback
+  // Timer Countdown Effect
   useEffect(() => {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
@@ -88,11 +59,6 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
     setAutoClaimed(true);
     SynthAudio.playCollect();
     onReward();
-  };
-
-  const handleVisitSponsor = () => {
-    const targetUrl = directAdUrl || HILLTOP_ZONE_URL;
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
   const progressPercent = Math.min(100, Math.max(0, ((totalDuration - timeLeft) / totalDuration) * 100));
@@ -152,15 +118,15 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
             <div className="relative z-10 space-y-3 w-full">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider">
                 <Sparkles className="w-3 h-3 text-cyan-400 animate-spin" />
-                {sponsor.badge}
+                HILLTOP ADS ZONE #7299377
               </div>
 
               <div className="space-y-1">
                 <h3 className="text-base font-black font-mono text-white tracking-wide uppercase">
-                  {sponsor.brand}
+                  HILLTOP ADS NETWORK
                 </h3>
                 <p className="text-[11px] font-mono font-bold text-cyan-300 tracking-wider uppercase">
-                  {sponsor.title}
+                  HIGH-PERFORMANCE GAME MONETIZATION
                 </p>
               </div>
 
@@ -174,20 +140,6 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                     className="w-1 bg-gradient-to-t from-cyan-500 to-teal-300 rounded-full"
                   />
                 ))}
-              </div>
-
-              {/* Visit Sponsor Button / Direct Zone Link */}
-              <div className="flex flex-col items-center gap-2 pt-1">
-                <button
-                  onClick={handleVisitSponsor}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-black tracking-wider transition shadow-[0_0_20px_rgba(6,182,212,0.4)] cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>OPEN HILLTOPADS ZONE PAGE</span>
-                </button>
-                <p className="text-[9px] font-mono text-slate-500 max-w-xs">
-                  ⚡ AdBlockers or sandboxed preview iframes may prevent popunder scripts from displaying inline. Click above to open Zone #7299377 directly.
-                </p>
               </div>
             </div>
 
