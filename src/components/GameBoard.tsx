@@ -4,7 +4,7 @@ import { Upgrades, SHIP_SKINS } from '../types';
 import { SynthAudio } from '../utils/audio';
 import { HapticFeedback } from '../utils/haptics';
 import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery, ShieldAlert, Tv } from 'lucide-react';
-import { AdPlayerOverlay } from './AdPlayerOverlay';
+import { AdPlayerOverlay, RewardedAdModal } from './AdPlayerOverlay';
 
 interface GameBoardProps {
   upgrades: Upgrades;
@@ -4507,12 +4507,11 @@ export default function GameBoard({
 
       {/* REWARDED AD PLAYING OVERLAY */}
       {playingReviveAd && (
-        <AdPlayerOverlay
-          adName="revive_ad"
+        <RewardedAdModal
+          vastTagUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
+          rewardLabel="Revive Ship"
           onReward={handleReviveSuccess}
-          onCancel={() => {
-            setPlayingReviveAd(false);
-          }}
+          onClose={() => setPlayingReviveAd(false)}
         />
       )}
 

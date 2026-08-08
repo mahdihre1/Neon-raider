@@ -12,7 +12,7 @@ import UpgradesStore from './components/UpgradesStore';
 import StatsPanel from './components/StatsPanel';
 import LeaderboardPanel from './components/LeaderboardPanel';
 import UsernameModal from './components/UsernameModal';
-import { AdPlayerOverlay } from './components/AdPlayerOverlay';
+import { AdPlayerOverlay, RewardedAdModal } from './components/AdPlayerOverlay';
 import CompliancePages from './components/CompliancePages';
 import { TutorialPanel } from './components/TutorialPanel';
 import { submitHighScore } from './lib/firebase';
@@ -1182,12 +1182,12 @@ export default function App() {
           )}
 
           {playingDoubleAd && (
-            <AdPlayerOverlay
+            <RewardedAdModal
+              vastTagUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
+              rewardLabel="Double Scrap"
               adName="double_scraps"
               onReward={handleDoubleScrapsSuccess}
-              onCancel={() => {
-                setPlayingDoubleAd(false);
-              }}
+              onClose={() => setPlayingDoubleAd(false)}
             />
           )}
         </div>

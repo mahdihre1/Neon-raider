@@ -1,17 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Tv, Zap, CheckCircle2, X, ExternalLink, ShieldCheck, Sparkles, Volume2, VolumeX, Play, ArrowRight } from 'lucide-react';
+import { Tv, Zap, CheckCircle2, X, ExternalLink, ShieldCheck, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { SynthAudio } from '../utils/audio';
 
-interface AdPlayerOverlayProps {
-  adName: 'revive_ad' | 'double_scraps';
+export interface RewardedAdModalProps {
+  vastTagUrl?: string;
+  rewardLabel?: string;
+  onReward: () => void;
+  onClose?: () => void;
+  onCancel?: () => void;
+  adName?: 'revive_ad' | 'double_scraps';
+}
+
+export interface AdPlayerOverlayProps {
+  adName?: 'revive_ad' | 'double_scraps';
+  rewardLabel?: string;
+  vastTagUrl?: string;
   onReward: () => void;
   onCancel: () => void;
   directAdUrl?: string;
 }
 
 export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
-  adName,
+  adName = 'revive_ad',
+  rewardLabel,
+  vastTagUrl,
   onReward,
   onCancel,
   directAdUrl
@@ -22,6 +35,8 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [autoClaimed, setAutoClaimed] = useState(false);
 
+  const HILLTOP_ZONE_URL = vastTagUrl || "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN";
+
   const sponsor = {
     brand: "HILLTOP ADS NETWORK",
     title: "ZONE #7299377 REWARD BROADCAST",
@@ -30,7 +45,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
     color: "from-cyan-500 via-blue-500 to-purple-600"
   };
 
-  const HILLTOP_ZONE_URL = "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN";
+  const displayRewardLabel = rewardLabel || (adName === 'revive_ad' ? 'FULL SHIELD REVIVE' : '2X SCRAP BONUS');
 
   // Dynamic script trigger on overlay mount
   useEffect(() => {
@@ -47,7 +62,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
     } catch (e) {
       console.warn("HilltopAds script initialization:", e);
     }
-  }, []);
+  }, [HILLTOP_ZONE_URL]);
 
   // Timer Countdown Effect with auto-claim fallback
   useEffect(() => {
@@ -111,7 +126,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                   </span>
                 </div>
                 <p className="text-[9px] font-mono text-slate-400">
-                  {adName === 'revive_ad' ? 'REWARD: FULL SHIELD REVIVE' : 'REWARD: 2X SCRAP BONUS'}
+                  REWARD: {displayRewardLabel.toUpperCase()}
                 </p>
               </div>
             </div>
@@ -208,7 +223,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                 className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black font-mono text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(16,185,129,0.5)] transition duration-200 flex items-center justify-center gap-2 cursor-pointer animate-bounce"
               >
                 <CheckCircle2 className="w-4 h-4 fill-slate-950 text-emerald-400" />
-                <span>CLAIM REWARD ({adName === 'revive_ad' ? 'REVIVE SHIP' : '2X SCRAP'})</span>
+                <span>CLAIM REWARD ({displayRewardLabel.toUpperCase()})</span>
               </button>
             ) : (
               <div className="w-full flex items-center gap-2">
@@ -228,5 +243,25 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
         </motion.div>
       </div>
     </AnimatePresence>
+  );
+};
+
+export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
+  vastTagUrl = "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN",
+  rewardLabel,
+  onReward,
+  onClose,
+  onCancel,
+  adName = 'revive_ad'
+}) => {
+  const handleClose = onClose || onCancel || (() => {});
+  return (
+    <AdPlayerOverlay
+      adName={adName}
+      rewardLabel={rewardLabel}
+      vastTagUrl={vastTagUrl}
+      onReward={onReward}
+      onCancel={handleClose}
+    />
   );
 };
