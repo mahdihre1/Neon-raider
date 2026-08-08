@@ -280,6 +280,25 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
     }
   };
 
+  // Ensure autoplay triggers imperatively as soon as status becomes 'playing'
+  useEffect(() => {
+    if (status === 'playing' && videoRef.current) {
+      videoRef.current.muted = isMuted;
+      videoRef.current.play().catch(err => {
+        console.warn('Autoplay play() error:', err);
+      });
+    }
+  }, [status, adData, isMuted]);
+
+  const handleMediaReady = () => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+      videoRef.current.play().catch(err => {
+        console.warn('Autoplay onMediaReady error:', err);
+      });
+    }
+  };
+
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-xl select-none">
@@ -370,6 +389,8 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                   playsInline
                   muted={isMuted}
                   onPlay={handlePlay}
+                  onLoadedMetadata={handleMediaReady}
+                  onCanPlay={handleMediaReady}
                   onTimeUpdate={handleTimeUpdate}
                   onEnded={handleVideoEnded}
                   onError={handleVideoError}
