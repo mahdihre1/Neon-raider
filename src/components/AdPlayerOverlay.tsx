@@ -174,6 +174,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hasStartedRef = useRef<boolean>(false);
   const firedQuartilesRef = useRef<{ [key: string]: boolean }>({});
+  const hasAttemptedPlayRef = useRef<boolean>(false);
 
   const activeZoneUrl = adZoneUrl || vastTagUrl || directAdUrl || DEFAULT_AD_ZONE_URL;
   const displayRewardLabel = rewardLabel || (adName === 'revive_ad' ? 'FULL SHIELD REVIVE' : '2X SCRAP BONUS');
@@ -183,6 +184,9 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
     let isMounted = true;
     setStatus('loading');
     setErrorMessage('');
+    hasAttemptedPlayRef.current = false;
+    hasStartedRef.current = false;
+    firedQuartilesRef.current = {};
 
     // Instantiate VASTClient to satisfy package integration requirement
     try {
@@ -220,10 +224,13 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
     }
   };
 
-  const tryPlayVideo = () => {
+  const tryPlayVideo = (isManualTap = false) => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = isMuted;
+    if (!isManualTap && hasAttemptedPlayRef.current) return;
+    hasAttemptedPlayRef.current = true;
+
+    video.muted = true;
     video.defaultMuted = true;
     const playPromise = video.play();
     if (playPromise !== undefined) {
@@ -306,13 +313,6 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
       videoRef.current.defaultMuted = true;
     }
   }, [isMuted, adData]);
-
-  // Ensure autoplay triggers imperatively as soon as status becomes 'playing'
-  useEffect(() => {
-    if (status === 'playing' && videoRef.current) {
-      tryPlayVideo();
-    }
-  }, [status, adData]);
 
   return (
     <AnimatePresence>
@@ -400,7 +400,6 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                 <video
                   ref={videoRef}
                   src={adData.mediaUrl}
-                  autoPlay
                   playsInline
                   preload="auto"
                   muted={isMuted}
@@ -411,8 +410,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                       setIsPaused(true);
                     }
                   }}
-                  onLoadedMetadata={tryPlayVideo}
-                  onCanPlay={tryPlayVideo}
+                  onCanPlay={() => tryPlayVideo(false)}
                   onTimeUpdate={handleTimeUpdate}
                   onEnded={handleVideoEnded}
                   onError={handleVideoError}
@@ -425,7 +423,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                   <div
                     onClick={(e) => {
                       e.stopPropagation();
-                      tryPlayVideo();
+                      tryPlayVideo(true);
                     }}
                     className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xs cursor-pointer group/play"
                   >
