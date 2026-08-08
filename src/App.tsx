@@ -1183,7 +1183,7 @@ export default function App() {
 
           {playingDoubleAd && (
             <RewardedAdModal
-              vastTagUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
+              adZoneUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
               rewardLabel="Double Scrap"
               adName="double_scraps"
               onReward={handleDoubleScrapsSuccess}

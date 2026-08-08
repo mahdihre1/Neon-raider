@@ -4508,7 +4508,7 @@ export default function GameBoard({
       {/* REWARDED AD PLAYING OVERLAY */}
       {playingReviveAd && (
         <RewardedAdModal
-          vastTagUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
+          adZoneUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
           rewardLabel="Revive Ship"
           onReward={handleReviveSuccess}
           onClose={() => setPlayingReviveAd(false)}

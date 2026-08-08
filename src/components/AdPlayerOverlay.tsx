@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX, Play, ExternalLink } from 'lucide-react';
 import { SynthAudio } from '../utils/audio';
 
 export interface RewardedAdModalProps {
-  vastTagUrl?: string;
+  adZoneUrl?: string;
+  vastTagUrl?: string; // alias for backward compatibility
   rewardLabel?: string;
   onReward: () => void;
   onClose?: () => void;
@@ -15,53 +16,58 @@ export interface RewardedAdModalProps {
 export interface AdPlayerOverlayProps {
   adName?: 'revive_ad' | 'double_scraps';
   rewardLabel?: string;
-  vastTagUrl?: string;
+  adZoneUrl?: string;
+  vastTagUrl?: string; // alias
   onReward: () => void;
   onCancel: () => void;
   directAdUrl?: string;
 }
 
+const DEFAULT_AD_ZONE_URL = "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN";
+
 export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
   adName = 'revive_ad',
   rewardLabel,
+  adZoneUrl,
+  vastTagUrl,
   onReward,
   onCancel,
+  directAdUrl
 }) => {
-  const totalDuration = 30;
-  const [timeLeft, setTimeLeft] = useState(totalDuration);
-  const [isCompleted, setIsCompleted] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [autoClaimed, setAutoClaimed] = useState(false);
+  const [adLaunched, setAdLaunched] = useState(false);
 
+  const activeZoneUrl = adZoneUrl || vastTagUrl || directAdUrl || DEFAULT_AD_ZONE_URL;
   const displayRewardLabel = rewardLabel || (adName === 'revive_ad' ? 'FULL SHIELD REVIVE' : '2X SCRAP BONUS');
 
-  // Timer Countdown Effect
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          setIsCompleted(true);
-          if (!isMuted) {
-            SynthAudio.playCollect();
-          }
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [isMuted]);
-
-  const handleClaimReward = () => {
-    if (autoClaimed) return;
-    setAutoClaimed(true);
-    SynthAudio.playCollect();
-    onReward();
+  const sponsor = {
+    brand: "HILLTOP ADS NETWORK",
+    title: "ZONE #7299377 SPONSOR BROADCAST",
+    badge: "HILLTOP ADS VERIFIED"
   };
 
-  const progressPercent = Math.min(100, Math.max(0, ((totalDuration - timeLeft) / totalDuration) * 100));
+  const handleWatchAd = () => {
+    if (adLaunched) return;
+    setAdLaunched(true);
+
+    if (!isMuted) {
+      SynthAudio.playCollect();
+    }
+
+    // Trigger Popunder / Direct Link Ad directly in user click gesture context
+    try {
+      window.open(activeZoneUrl, '_blank', 'noopener,noreferrer');
+      const script = document.createElement('script');
+      script.src = activeZoneUrl;
+      script.async = true;
+      document.body.appendChild(script);
+    } catch (err) {
+      console.warn("HilltopAds Zone launch error:", err);
+    }
+
+    // Grant reward immediately upon user-triggered ad engagement
+    onReward();
+  };
 
   return (
     <AnimatePresence>
@@ -107,7 +113,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
           </div>
 
           {/* Animated Video Canvas Simulation */}
-          <div className="relative p-6 bg-slate-950 flex flex-col items-center justify-center text-center overflow-hidden min-h-[220px]">
+          <div className="relative p-6 bg-slate-950 flex flex-col items-center justify-center text-center overflow-hidden min-h-[200px]">
             {/* Animated Cyber Grid Background */}
             <div className="absolute inset-0 bg-[linear-gradient(to_right,#0f172a_1px,transparent_1px),linear-gradient(to_bottom,#0f172a_1px,transparent_1px)] bg-[size:14px_14px] opacity-40" />
 
@@ -118,15 +124,15 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
             <div className="relative z-10 space-y-3 w-full">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider">
                 <Sparkles className="w-3 h-3 text-cyan-400 animate-spin" />
-                HILLTOP ADS ZONE #7299377
+                {sponsor.badge}
               </div>
 
               <div className="space-y-1">
                 <h3 className="text-base font-black font-mono text-white tracking-wide uppercase">
-                  HILLTOP ADS NETWORK
+                  {sponsor.brand}
                 </h3>
                 <p className="text-[11px] font-mono font-bold text-cyan-300 tracking-wider uppercase">
-                  HIGH-PERFORMANCE GAME MONETIZATION
+                  {sponsor.title}
                 </p>
               </div>
 
@@ -135,7 +141,7 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
                 {[40, 80, 60, 100, 50, 90, 70, 30, 85, 45].map((h, i) => (
                   <motion.div
                     key={i}
-                    animate={{ height: isCompleted ? '20%' : [`${h}%`, '20%', `${h}%`] }}
+                    animate={{ height: [`${h}%`, '20%', `${h}%`] }}
                     transition={{ repeat: Infinity, duration: 0.6 + (i * 0.1), ease: "easeInOut" }}
                     className="w-1 bg-gradient-to-t from-cyan-500 to-teal-300 rounded-full"
                   />
@@ -152,50 +158,39 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
             </button>
           </div>
 
-          {/* Progress Bar & Countdown */}
-          <div className="bg-slate-950 px-5 py-3 border-t border-slate-800 space-y-1.5">
-            <div className="flex justify-between items-center text-[10px] font-mono font-bold">
-              <span className="text-slate-400 uppercase">BROADCAST STATUS</span>
-              <span className={isCompleted ? "text-emerald-400 font-black" : "text-cyan-400"}>
-                {isCompleted ? "✔ BROADCAST COMPLETE" : `PLAYING (${timeLeft}s)`}
-              </span>
-            </div>
-            <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
-              <div
-                className={`h-full rounded-full transition-all duration-300 ${
-                  isCompleted
-                    ? "bg-gradient-to-r from-emerald-500 to-teal-400 shadow-[0_0_12px_rgba(16,185,129,0.8)]"
-                    : "bg-gradient-to-r from-cyan-500 via-blue-500 to-teal-400"
-                }`}
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
+          {/* Broadcast Info Notice */}
+          <div className="bg-slate-950 px-5 py-2.5 border-t border-slate-800 text-center">
+            <p className="text-[10px] font-mono text-slate-400">
+              Click below to trigger the sponsor ad & claim your reward.
+            </p>
           </div>
 
           {/* Action Buttons */}
           <div className="p-4 bg-slate-900 border-t border-cyan-500/20 flex flex-col sm:flex-row items-center gap-2.5">
-            {isCompleted ? (
-              <button
-                onClick={handleClaimReward}
-                className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-500 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black font-mono text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(16,185,129,0.5)] transition duration-200 flex items-center justify-center gap-2 cursor-pointer animate-bounce"
-              >
-                <CheckCircle2 className="w-4 h-4 fill-slate-950 text-emerald-400" />
-                <span>CLAIM REWARD ({displayRewardLabel.toUpperCase()})</span>
-              </button>
-            ) : (
-              <div className="w-full flex items-center gap-2">
-                <div className="flex-1 py-2.5 px-3 rounded-xl bg-slate-800/60 border border-slate-700/50 text-slate-400 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center justify-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                  <span>WATCHING AD ({timeLeft}s)...</span>
-                </div>
-                <button
-                  onClick={onCancel}
-                  className="px-4 py-2.5 rounded-xl bg-red-950/60 hover:bg-red-900/80 border border-red-500/40 text-red-300 hover:text-white font-mono text-[10px] uppercase font-bold transition cursor-pointer"
-                >
-                  SKIP AD (NO REWARD)
-                </button>
-              </div>
-            )}
+            <button
+              onClick={handleWatchAd}
+              disabled={adLaunched}
+              className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-500 hover:from-cyan-400 hover:to-emerald-400 text-slate-950 font-black font-mono text-xs uppercase tracking-wider shadow-[0_0_25px_rgba(6,182,212,0.4)] transition duration-200 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            >
+              {adLaunched ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                  <span>REWARD UNLOCKED</span>
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 fill-slate-950" />
+                  <span>WATCH AD & CLAIM ({displayRewardLabel.toUpperCase()})</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={onCancel}
+              className="w-full sm:w-auto px-4 py-3 rounded-xl bg-slate-800/80 hover:bg-red-950/60 border border-slate-700 hover:border-red-500/40 text-slate-400 hover:text-red-300 font-mono text-[10px] uppercase font-bold transition cursor-pointer whitespace-nowrap"
+            >
+              SKIP AD (NO REWARD)
+            </button>
           </div>
         </motion.div>
       </div>
@@ -204,7 +199,8 @@ export const AdPlayerOverlay: React.FC<AdPlayerOverlayProps> = ({
 };
 
 export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
-  vastTagUrl = "https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN",
+  adZoneUrl,
+  vastTagUrl,
   rewardLabel,
   onReward,
   onClose,
@@ -216,7 +212,7 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
     <AdPlayerOverlay
       adName={adName}
       rewardLabel={rewardLabel}
-      vastTagUrl={vastTagUrl}
+      adZoneUrl={adZoneUrl || vastTagUrl}
       onReward={onReward}
       onCancel={handleClose}
     />
