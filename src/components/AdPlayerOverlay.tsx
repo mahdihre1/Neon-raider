@@ -69,19 +69,24 @@ async function parseVastTag(vastUrl: string): Promise<VastAdData> {
     throw new Error('No ads found in VAST response');
   }
 
-  // Pick exactly ONE ad deterministically:
-  // Prefer the ad with the shortest linear creative duration if durations are available,
-  // otherwise fall back to the first ad in the response.
+  // Select an ad prioritizing 15s and 30s duration targets:
+  // Calculate distance to nearest target (15s or 30s) and prefer duration <= 35s.
   let chosenAd = response.ads[0];
-  let shortestDuration = Infinity;
+  let bestScore = Infinity;
 
   for (const ad of response.ads) {
     for (const creative of ad?.creatives || []) {
       const dur = creative?.duration;
       const isLinear = creative?.type === 'linear' || (creative?.mediaFiles && creative.mediaFiles.length > 0);
       if (isLinear && typeof dur === 'number' && dur > 0) {
-        if (dur < shortestDuration) {
-          shortestDuration = dur;
+        // Distance to 15s or 30s
+        const distToTarget = Math.min(Math.abs(dur - 15), Math.abs(dur - 30));
+        // Penalty for long ads (> 35 seconds)
+        const penalty = dur > 35 ? 1000 + dur : 0;
+        const score = distToTarget + penalty;
+
+        if (score < bestScore) {
+          bestScore = score;
           chosenAd = ad;
         }
       }
