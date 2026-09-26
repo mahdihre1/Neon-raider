@@ -5,6 +5,7 @@ import { SynthAudio } from '../utils/audio';
 import { HapticFeedback } from '../utils/haptics';
 import { Shield, Sparkles, Zap, Award, Target, Coins, Volume2, VolumeX, Hourglass, AlertTriangle, RefreshCw, Heart, Battery, ShieldAlert, Tv } from 'lucide-react';
 import { AdPlayerOverlay, RewardedAdModal } from './AdPlayerOverlay';
+import { HILLTOP_ADS_ENABLED } from '../config/ads';
 
 interface GameBoardProps {
   upgrades: Upgrades;
@@ -3530,7 +3531,7 @@ export default function GameBoard({
 
       // 8. GAME OVER TRIGGER
       if (state.shield <= 0) {
-        if (!state.hasRevivedThisRun && !isTutorial) {
+        if (HILLTOP_ADS_ENABLED && !state.hasRevivedThisRun && !isTutorial) {
           state.hasRevivedThisRun = true; // Mark as spent so they don't get double prompted
           setShowingRevivePrompt(true);
           return;
@@ -4451,7 +4452,7 @@ export default function GameBoard({
       )}
 
       {/* EMERGENCY REVIVE AD PROMPT */}
-      {showingRevivePrompt && !playingReviveAd && (
+      {HILLTOP_ADS_ENABLED && showingRevivePrompt && !playingReviveAd && (
         <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col justify-center items-center z-50 p-6 select-none">
           <motion.div 
             initial={{ opacity: 0, scale: 0.92 }}
@@ -4506,7 +4507,7 @@ export default function GameBoard({
       )}
 
       {/* REWARDED AD PLAYING OVERLAY */}
-      {playingReviveAd && (
+      {HILLTOP_ADS_ENABLED && playingReviveAd && (
         <RewardedAdModal
           adZoneUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
           rewardLabel="Revive Ship"

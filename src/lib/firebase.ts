@@ -37,7 +37,10 @@ async function getDb(): Promise<Firestore> {
     } else {
       // 2. Fall back to the local config file if present
       try {
-        const configs: Record<string, any> = (import.meta as any).glob('../../firebase-applet-config.json', { eager: true });
+        const configs: Record<string, any> = (import.meta as any).glob(
+          ['/firebase-applet-config.json', '../../firebase-applet-config.json'], 
+          { eager: true }
+        );
         const configKeys = Object.keys(configs);
         if (configKeys.length > 0) {
           const configModule: any = configs[configKeys[0]];

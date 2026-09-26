@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Tv, CheckCircle2, X, ShieldCheck, Sparkles, Volume2, VolumeX, AlertTriangle, ExternalLink, Loader2, Play } from 'lucide-react';
 import { VASTClient } from '@dailymotion/vast-client';
 import { SynthAudio } from '../utils/audio';
+import { HILLTOP_ADS_ENABLED } from '../config/ads';
 
 export interface RewardedAdModalProps {
   adZoneUrl?: string;
@@ -516,6 +517,9 @@ export const RewardedAdModal: React.FC<RewardedAdModalProps> = ({
   adName = 'revive_ad'
 }) => {
   const handleClose = onClose || onCancel || (() => {});
+  if (!HILLTOP_ADS_ENABLED) {
+    return null;
+  }
   return (
     <AdPlayerOverlay
       adName={adName}

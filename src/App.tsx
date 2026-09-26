@@ -13,6 +13,7 @@ import StatsPanel from './components/StatsPanel';
 import LeaderboardPanel from './components/LeaderboardPanel';
 import UsernameModal from './components/UsernameModal';
 import { AdPlayerOverlay, RewardedAdModal } from './components/AdPlayerOverlay';
+import { HILLTOP_ADS_ENABLED } from './config/ads';
 import CompliancePages from './components/CompliancePages';
 import { TutorialPanel } from './components/TutorialPanel';
 import { submitHighScore } from './lib/firebase';
@@ -979,7 +980,7 @@ export default function App() {
                   </div>
 
                   {/* DOUBLE SCRAP AD BUTTON */}
-                  {currentRun.scrap > 0 && (
+                  {HILLTOP_ADS_ENABLED && currentRun.scrap > 0 && (
                     <div className="pt-1">
                       <button
                         id="double-scrap-ad-btn"
@@ -1181,7 +1182,7 @@ export default function App() {
             </div>
           )}
 
-          {playingDoubleAd && (
+          {HILLTOP_ADS_ENABLED && playingDoubleAd && (
             <RewardedAdModal
               adZoneUrl="https://vapid-size.com/dtmaFJz/d.GoNVvvZ/GzUe/Vebmt9wuwZSUOltkrPeTVclyIO_TfkNzlNkzyc/tyNVz/In5oORTMMR4HMOQN"
               rewardLabel="Double Scrap"
