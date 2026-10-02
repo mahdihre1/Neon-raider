@@ -1,6 +1,6 @@
 {
   "name": "Neon Raider Arcade",
-  "description": "A highly polished, retro-themed arcade survival mobile game with sound effects, upgrades, and high-score tracking.",
+  "description": "Play Neon Raider Arcade, a free retro sci-fi space shooter. Upgrade high-tech starfighters, blast asteroid fields, defeat mothership bosses, and top the global leaderboards.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

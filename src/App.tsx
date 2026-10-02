@@ -14,7 +14,7 @@ import LeaderboardPanel from './components/LeaderboardPanel';
 import UsernameModal from './components/UsernameModal';
 import { AdPlayerOverlay, RewardedAdModal } from './components/AdPlayerOverlay';
 import { HILLTOP_ADS_ENABLED } from './config/ads';
-import CompliancePages from './components/CompliancePages';
+import CompliancePages, { ComplianceTab } from './components/CompliancePages';
 import { TutorialPanel } from './components/TutorialPanel';
 import { submitHighScore } from './lib/firebase';
 import { 
@@ -85,7 +85,7 @@ export default function App() {
   const [gameState, setGameState] = useState<'splash' | 'game' | 'upgrades' | 'stats' | 'gameover' | 'leaderboard'>('splash');
   const [paused, setPaused] = useState(false);
   const [showCompliance, setShowCompliance] = useState(false);
-  const [complianceTab, setComplianceTab] = useState<'about' | 'privacy' | 'contact'>('about');
+  const [complianceTab, setComplianceTab] = useState<ComplianceTab>('about');
 
   // Starter philosophy & death insights
   const [starterLoadout, setStarterLoadout] = useState<'balanced' | 'glass' | 'tank'>('balanced');
@@ -139,6 +139,28 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  // Deep-link routing for SEO, AdSense compliance, and direct links (#privacy, #terms, #about, #contact, #guide)
+  useEffect(() => {
+    const handleUrlRouting = () => {
+      if (typeof window === 'undefined') return;
+      const hash = window.location.hash.toLowerCase().replace('#', '').trim();
+      const params = new URLSearchParams(window.location.search);
+      const pageParam = params.get('page')?.toLowerCase().trim();
+      const target = (pageParam || hash) as ComplianceTab;
+
+      if (['about', 'guide', 'privacy', 'terms', 'contact'].includes(target)) {
+        setComplianceTab(target);
+        setShowCompliance(true);
+      }
+    };
+
+    handleUrlRouting();
+    window.addEventListener('hashchange', handleUrlRouting);
+    return () => {
+      window.removeEventListener('hashchange', handleUrlRouting);
     };
   }, []);
 
@@ -788,27 +810,46 @@ export default function App() {
                       <span>WWW.NEON-RAIDER.COM</span>
                     </a>
 
-                    <div className="flex justify-center items-center gap-3.5 text-[9px] font-mono text-slate-500">
-                      <button
-                        onClick={() => { SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); }}
+                    <div className="flex justify-center items-center gap-2 sm:gap-2.5 text-[8px] sm:text-[9px] font-mono text-slate-400 flex-wrap">
+                      <a
+                        href="#about"
+                        onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); window.history.replaceState(null, '', '#about'); }}
                         className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
                       >
                         About
-                      </button>
+                      </a>
                       <span>•</span>
-                      <button
-                        onClick={() => { SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); }}
+                      <a
+                        href="#guide"
+                        onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('guide'); setShowCompliance(true); window.history.replaceState(null, '', '#guide'); }}
                         className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
                       >
-                        Privacy
-                      </button>
+                        How to Play
+                      </a>
                       <span>•</span>
-                      <button
-                        onClick={() => { SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); }}
+                      <a
+                        href="#privacy"
+                        onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); window.history.replaceState(null, '', '#privacy'); }}
+                        className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                      >
+                        Privacy Policy
+                      </a>
+                      <span>•</span>
+                      <a
+                        href="#terms"
+                        onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('terms'); setShowCompliance(true); window.history.replaceState(null, '', '#terms'); }}
+                        className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
+                      >
+                        Terms
+                      </a>
+                      <span>•</span>
+                      <a
+                        href="#contact"
+                        onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); window.history.replaceState(null, '', '#contact'); }}
                         className="hover:text-cyan-400 transition-colors uppercase cursor-pointer"
                       >
                         Contact
-                      </button>
+                      </a>
                     </div>
                   </div>
                 </div>
@@ -1116,7 +1157,12 @@ export default function App() {
 
           {showCompliance && (
             <CompliancePages
-              onClose={() => setShowCompliance(false)}
+              onClose={() => {
+                setShowCompliance(false);
+                if (typeof window !== 'undefined' && window.location.hash) {
+                  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+                }
+              }}
               initialTab={complianceTab}
             />
           )}
@@ -1276,27 +1322,46 @@ export default function App() {
       {/* Outer Global Footer */}
       <footer className="w-full max-w-6xl mt-6 border-t border-slate-900/60 pt-4 flex flex-col sm:flex-row items-center justify-between text-[10px] font-mono text-slate-500 z-10 select-none px-4 gap-3 sm:gap-0">
         <p>© 2026 NEON RAIDER ARCADE. ALL RIGHTS RESERVED.</p>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => { SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); }}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-center">
+          <a
+            href="#about"
+            onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('about'); setShowCompliance(true); window.history.replaceState(null, '', '#about'); }}
             className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
           >
-            About Arcade
-          </button>
+            About
+          </a>
           <span>•</span>
-          <button
-            onClick={() => { SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); }}
+          <a
+            href="#guide"
+            onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('guide'); setShowCompliance(true); window.history.replaceState(null, '', '#guide'); }}
+            className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
+          >
+            How to Play
+          </a>
+          <span>•</span>
+          <a
+            href="#privacy"
+            onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('privacy'); setShowCompliance(true); window.history.replaceState(null, '', '#privacy'); }}
             className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
           >
             Privacy Policy
-          </button>
+          </a>
           <span>•</span>
-          <button
-            onClick={() => { SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); }}
+          <a
+            href="#terms"
+            onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('terms'); setShowCompliance(true); window.history.replaceState(null, '', '#terms'); }}
             className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
           >
-            Contact Hub
-          </button>
+            Terms of Service
+          </a>
+          <span>•</span>
+          <a
+            href="#contact"
+            onClick={(e) => { e.preventDefault(); SynthAudio.playCollect(); setComplianceTab('contact'); setShowCompliance(true); window.history.replaceState(null, '', '#contact'); }}
+            className="hover:text-cyan-400 hover:underline transition-colors uppercase cursor-pointer"
+          >
+            Contact
+          </a>
         </div>
       </footer>
     </div>
